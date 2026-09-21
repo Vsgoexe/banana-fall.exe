@@ -50,11 +50,12 @@
 <div id="hud">
   <span>🍌 Players left: <b id="pCount">8</b>/<b id="pTotal">8</b></span>
   <span>You are: <b id="youLabel">Connecting…</b></span>
+  <span>❤️ <b id="hpLabel">3</b>/3</span>
   <span>⏱ <b id="timer">90</b>s</span>
 </div>
 <button id="btnMute" type="button" title="Mute">🔊</button>
 <div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Right-click + drag: look / turn
-  &nbsp;|&nbsp; Left-click: swing stick &nbsp;|&nbsp; Tag someone and the banna drops!</div>
+  &nbsp;|&nbsp; Left-click: swing stick (3 hits to knock the banana) &nbsp;|&nbsp; Hide behind trees, walls, and crates!</div>
 <div id="banner">
   <div id="bannerText"></div>
   <button onclick="onPlayAgainClick()">Play Again</button>
@@ -90,6 +91,13 @@
           <option value="easy">Easy</option>
           <option value="normal" selected>Normal</option>
           <option value="hard">Hard</option>
+        </select>
+      </label>
+      <label>Map
+        <select id="mapSelect">
+          <option value="grove" selected>Campfire Grove</option>
+          <option value="ruins">Ruin Yard</option>
+          <option value="market">Banana Market</option>
         </select>
       </label>
     </div>
@@ -150,21 +158,112 @@ flame.position.y = 1.1;
 fireGroup.add(flame);
 scene.add(fireGroup);
 
-function makeTree(x,z){
+const PLAYER_R = 0.42;
+const MAX_HP = 3;
+let currentMap = 'grove';
+const mapGroup = new THREE.Group();
+scene.add(mapGroup);
+let obstacles = [];
+
+function addObstacle(minX, maxX, minZ, maxZ, h, jumpOver){
+  obstacles.push({minX, maxX, minZ, maxZ, h, jumpOver: !!jumpOver});
+}
+function blockedAt(x, z, y){
+  for (const o of obstacles){
+    if (y >= o.h - 0.12) continue;
+    if (x + PLAYER_R > o.minX && x - PLAYER_R < o.maxX && z + PLAYER_R > o.minZ && z - PLAYER_R < o.maxZ) return true;
+  }
+  return false;
+}
+function addBoxCover(x, z, w, d, h, color, jumpOver){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({color}));
+  m.position.set(x, h / 2, z);
+  mapGroup.add(m);
+  addObstacle(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h, jumpOver);
+}
+function addTreeCover(x, z){
   const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.4,2,6), new THREE.MeshStandardMaterial({color:0x4a3520}));
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.38, 2, 6), new THREE.MeshStandardMaterial({color: 0x4a3520}));
   trunk.position.y = 1;
-  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.6,3.2,7), new THREE.MeshStandardMaterial({color:0x2f6b2f}));
-  leaves.position.y = 3;
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.35, 2.8, 7), new THREE.MeshStandardMaterial({color: 0x2f6b2f}));
+  leaves.position.y = 2.8;
   g.add(trunk, leaves);
-  g.position.set(x,0,z);
-  scene.add(g);
+  g.position.set(x, 0, z);
+  mapGroup.add(g);
+  addObstacle(x - 0.5, x + 0.5, z - 0.5, z + 0.5, 2.4, false);
 }
-for (let i=0;i<14;i++){
-  const a = (i/14)*Math.PI*2;
-  const r = 28 + Math.random()*8;
-  makeTree(Math.cos(a)*r, Math.sin(a)*r);
+function addRock(x, z, s){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(s * 1.6, s * 1.2, s * 1.6), new THREE.MeshStandardMaterial({color: 0x6a6a62}));
+  m.position.set(x, s * 0.6, z);
+  m.rotation.y = 0.4;
+  mapGroup.add(m);
+  addObstacle(x - s * 0.8, x + s * 0.8, z - s * 0.8, z + s * 0.8, s * 1.1, s < 0.7);
 }
+function clearMap(){
+  while (mapGroup.children.length) mapGroup.remove(mapGroup.children[0]);
+  obstacles = [];
+}
+function addRimTrees(){
+  for (let i = 0; i < 16; i++){
+    const a = (i / 16) * Math.PI * 2;
+    const r = 29 + (i % 3) * 1.4;
+    addTreeCover(Math.cos(a) * r, Math.sin(a) * r);
+  }
+}
+const MAPS = {
+  grove: {
+    name: 'Campfire Grove',
+    ground: 0x2c4a26, bg: 0x0b1a0c, fog: 0x0b1a0c,
+    build(){
+      const spots = [[6,8],[-7,5],[8,-6],[-5,-8],[10,2],[-9,-2],[0,11],[0,-12],[12,10],[-11,9],[11,-11],[-12,-10]];
+      spots.forEach(([x,z], i) => i % 3 === 2 ? addRock(x, z, 0.7) : addTreeCover(x, z));
+    }
+  },
+  ruins: {
+    name: 'Ruin Yard',
+    ground: 0x4a4638, bg: 0x16140e, fog: 0x16140e,
+    build(){
+      addBoxCover(8, 0, 1.2, 8, 2.4, 0x8a7a62, false);
+      addBoxCover(-8, 0, 1.2, 8, 2.4, 0x8a7a62, false);
+      addBoxCover(0, 9, 7, 1.2, 2.2, 0x7a6a54, false);
+      addBoxCover(0, -9, 7, 1.2, 2.2, 0x7a6a54, false);
+      addBoxCover(5, 5, 2.2, 2.2, 2.6, 0x6e624c, false);
+      addBoxCover(-6, -5, 2.2, 2.2, 2.6, 0x6e624c, false);
+      addBoxCover(4, -4, 1.6, 1.6, 0.7, 0x5a5040, true);
+      addBoxCover(-4, 4, 1.6, 1.6, 0.7, 0x5a5040, true);
+    }
+  },
+  market: {
+    name: 'Banana Market',
+    ground: 0x3a4a22, bg: 0x12180c, fog: 0x12180c,
+    build(){
+      const stalls = [[7,7],[7,-7],[-7,7],[-7,-7],[10,0],[-10,0],[0,10],[0,-10]];
+      stalls.forEach(([x,z]) => {
+        addBoxCover(x, z, 2.4, 1.4, 1.6, 0x8a5a2a, false);
+        addBoxCover(x + 1.3, z, 0.2, 1.4, 2.1, 0xc4a24a, false);
+      });
+      addBoxCover(4, 0, 1.1, 1.1, 0.75, 0xc9a227, true);
+      addBoxCover(-4, 0, 1.1, 1.1, 0.75, 0xc9a227, true);
+      addBoxCover(0, 4, 1.1, 1.1, 0.75, 0xe0c04a, true);
+      addBoxCover(0, -4, 1.1, 1.1, 0.75, 0xe0c04a, true);
+    }
+  }
+};
+function loadMap(id){
+  currentMap = MAPS[id] ? id : 'grove';
+  const spec = MAPS[currentMap];
+  clearMap();
+  ground.material.color.setHex(spec.ground);
+  scene.background.setHex(spec.bg);
+  scene.fog.color.setHex(spec.fog);
+  spec.build();
+  addRimTrees();
+}
+
+function makeTree(x,z){
+  addTreeCover(x,z);
+}
+loadMap('grove');
 
 // ================= Character builder =================
 const PALETTE = [0xd94f4f,0x4f8fd9,0xd9c14f,0x7fd94f,0xb14fd9,0xd97f4f,0x4fd9c1,0xffffff];
@@ -298,10 +397,29 @@ function makeNameSprite(text){
   const tex = new THREE.CanvasTexture(canvas);
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
   spr.position.y = 2.55;
-  spr.scale.set(1.7, 0.42, 1);
+  spr.scale.set(1.7, 0.5, 1);
   spr.userData.canvas = canvas;
   spr.userData.tex = tex;
   return spr;
+}
+function drawPlayerLabel(p){
+  if (!p.nameSprite) return;
+  const canvas = p.nameSprite.userData.canvas;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 256, 64);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(8, 2, 240, 34);
+  ctx.fillStyle = '#ffe066';
+  ctx.font = 'bold 22px system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(p.displayName, 128, 20);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(28, 42, 200, 12);
+  const ratio = Math.max(0, p.hp) / MAX_HP;
+  ctx.fillStyle = p.hp > 1 ? '#4cde6a' : '#de4c4c';
+  ctx.fillRect(28, 42, 200 * ratio, 12);
+  p.nameSprite.userData.tex.needsUpdate = true;
 }
 
 
@@ -323,24 +441,16 @@ class Player {
     this.walkT = Math.random()*10;
     this.protectedNow = false;
     this.vy = 0;
+    this.hp = MAX_HP;
+    this.hurtTimer = 0;
     this.displayName = 'Player ' + (i + 1);
     this.nameSprite = makeNameSprite(this.displayName);
     this.mesh.add(this.nameSprite);
+    drawPlayerLabel(this);
   }
   setDisplayName(name){
     this.displayName = sanitizeName(name, 'Player ' + (this.id + 1));
-    if (!this.nameSprite) return;
-    const canvas = this.nameSprite.userData.canvas;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 256, 64);
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(8, 12, 240, 40);
-    ctx.fillStyle = '#ffe066';
-    ctx.font = 'bold 26px system-ui,sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(this.displayName, 128, 32);
-    this.nameSprite.userData.tex.needsUpdate = true;
+    drawPlayerLabel(this);
   }
   distTo(o){ return Math.hypot(this.mesh.position.x-o.mesh.position.x, this.mesh.position.z-o.mesh.position.z); }
   distToCenter(){ return Math.hypot(this.mesh.position.x, this.mesh.position.z); }
@@ -353,10 +463,16 @@ class Player {
     if (dx===0 && dz===0) return false;
     const len = Math.hypot(dx,dz);
     dx/=len; dz/=len;
-    let nx = this.mesh.position.x + dx*this.speed*dt;
-    let nz = this.mesh.position.z + dz*this.speed*dt;
+    const ox = this.mesh.position.x, oz = this.mesh.position.z, oy = this.mesh.position.y;
+    let nx = ox + dx*this.speed*dt;
+    let nz = oz + dz*this.speed*dt;
     const r = Math.hypot(nx,nz);
     if (r > ARENA_R){ nx *= ARENA_R/r; nz *= ARENA_R/r; }
+    if (blockedAt(nx, nz, oy)){
+      if (!blockedAt(nx, oz, oy)) nz = oz;
+      else if (!blockedAt(ox, nz, oy)) nx = ox;
+      else return false;
+    }
     this.mesh.position.x = nx; this.mesh.position.z = nz;
     if (faceMove) this.setFacing(Math.atan2(-dx, -dz));
     return true;
@@ -394,7 +510,15 @@ class Player {
       const t = 1 - Math.max(0,this.swingTimer)/0.35;
       this.mesh.userData.stickArm.rotation.x = -1.2 + Math.sin(t*Math.PI)*1.8;
     }
+    if (this.hurtTimer > 0) this.hurtTimer -= dt;
     if (this.swingCooldown > 0) this.swingCooldown -= dt;
+  }
+  takeHit(){
+    if (!this.hasLeaf || this.protectedNow || this.hurtTimer > 0) return;
+    this.hp -= 1;
+    this.hurtTimer = 0.55;
+    drawPlayerLabel(this);
+    if (this.hp <= 0) this.eliminate();
   }
   startSwing(){
     if (!this.hasLeaf || this.swingCooldown > 0) return;
@@ -679,6 +803,7 @@ function rebuildPlayers(){
   applySeatVisibility();
 }
 function resetGame(){
+  loadMap(currentMap);
   rebuildPlayers();
   timeLeft = 90;
   gameOver = false;
@@ -697,6 +822,8 @@ function renderHud(remaining, timeVal){
   document.getElementById('timer').textContent = Math.ceil(Math.max(0,timeVal));
   document.getElementById('youLabel').textContent =
     mySlot === null ? 'Connecting…' : ((players && players[mySlot] && players[mySlot].displayName) || 'Player ' + (mySlot+1)) + (isHost ? ' • Host' : ' • Guest');
+  const me = players && mySlot !== null ? players[mySlot] : null;
+  document.getElementById('hpLabel').textContent = me ? Math.max(0, me.hp) : MAX_HP;
 }
 function showPlayingUI(on){
   document.getElementById('hud').style.display = on ? 'flex' : 'none';
@@ -724,6 +851,9 @@ function updateAI(p, dt){
     dz = target.mesh.position.z - p.mesh.position.z;
     if (nd > TAG_REACH*0.7){
       moving = p.move(dx,dz,dt,true);
+      if (!moving){
+        moving = p.move(-dz, dx, dt, true) || p.move(dz, -dx, dt, true);
+      }
     } else {
       p.setFacing(Math.atan2(-dx, -dz));
       if (p.swingCooldown<=0){
@@ -734,7 +864,12 @@ function updateAI(p, dt){
   } else {
     p.wander += (Math.random()-0.5)*0.6*dt*10;
     moving = p.move(Math.sin(p.wander), Math.cos(p.wander), dt, true);
+    if (!moving){
+      moving = p.move(-Math.cos(p.wander), Math.sin(p.wander), dt, true);
+      if (!moving) p.wander += 1.2;
+    }
   }
+  if (!moving && p.onGround() && Math.random() < 0.08) p.jump();
   p.animate(dt, moving);
 }
 function computeProtection(){
@@ -748,7 +883,7 @@ function checkTags(){
     if (attacker.swingTimer <= 0) continue;
     for (const target of players){
       if (target === attacker || !target.hasLeaf || target.protectedNow || !target.mesh.visible) continue;
-      if (attacker.distTo(target) < TAG_REACH) target.eliminate();
+      if (attacker.distTo(target) < TAG_REACH) target.takeHit();
     }
   }
 }
@@ -934,7 +1069,7 @@ function renderLobbyList(){
       const you = h.id === localId ? ' (you)' : '';
       const nm = slotNames[h.slot] || ('Player ' + (h.slot+1));
       return '<li>' + nm + you + '</li>';
-    }).join('') + (bots ? '<li style="opacity:.7">' + bots + ' bot' + (bots===1?'':'s') + ' · ' + botDifficulty + '</li>' : '<li style="opacity:.7">No bots</li>');
+    }).join('') + (bots ? '<li style="opacity:.7">' + bots + ' bot' + (bots===1?'':'s') + ' · ' + botDifficulty + ' · ' + (MAPS[currentMap] ? MAPS[currentMap].name : currentMap) + '</li>' : '<li style="opacity:.7">No bots · ' + (MAPS[currentMap] ? MAPS[currentMap].name : currentMap) + '</li>');
     document.getElementById('botSettings').style.display = 'block';
     document.getElementById('botGuestLine').style.display = 'none';
     document.getElementById('botCountLabel').textContent = String(botCount);
@@ -943,6 +1078,7 @@ function renderLobbyList(){
       code: roomCode,
       bots: bots,
       difficulty: botDifficulty,
+      map: currentMap,
       players: humans.map(h => ({slot:h.slot, youId: h.id, name: slotNames[h.slot]}))
     });
   }
@@ -986,6 +1122,7 @@ function guestMessageHandler(m){
     const list = m.players || [];
     if (typeof m.bots === 'number') botCount = m.bots;
     if (m.difficulty) botDifficulty = m.difficulty;
+    if (m.map && MAPS[m.map]) currentMap = m.map;
     ul.innerHTML = list.map(h => {
       const you = (mySlot !== null && h.slot === mySlot) || h.youId === localId ? ' (you)' : '';
       return '<li>' + (h.name || ('Player ' + (h.slot+1))) + you + '</li>';
@@ -993,10 +1130,11 @@ function guestMessageHandler(m){
     const line = document.getElementById('botGuestLine');
     document.getElementById('botSettings').style.display = 'none';
     line.style.display = 'block';
-    line.textContent = (botCount ? (botCount + ' bot' + (botCount===1?'':'s')) : 'No bots') + ' · ' + botDifficulty;
+    line.textContent = (botCount ? (botCount + ' bot' + (botCount===1?'':'s')) : 'No bots') + ' · ' + botDifficulty + ' · ' + (MAPS[currentMap] ? MAPS[currentMap].name : currentMap);
   } else if (m.type === 'start'){
     if (typeof m.bots === 'number') botCount = m.bots;
     if (m.difficulty) botDifficulty = m.difficulty;
+    if (m.map && MAPS[m.map]) currentMap = m.map;
     beginMatchFromNet(m.round);
   } else if (m.type === 'host-alive' && phase === 'menu'){
     // ignore — used only while probing local tabs
@@ -1024,7 +1162,7 @@ function startMatch(){
   phase = 'playing';
   document.getElementById('lobby').style.display = 'none';
   showPlayingUI(true);
-  netSend({type:'start', round: roundId, bots: effectiveBots(), difficulty: botDifficulty});
+  netSend({type:'start', round: roundId, bots: effectiveBots(), difficulty: botDifficulty, map: currentMap});
 }
 
 function onPlayAgainClick(){
@@ -1149,8 +1287,10 @@ document.getElementById('btnStart').addEventListener('click', startMatch);
 function readBotControls(){
   const range = document.getElementById('botCount');
   const diff = document.getElementById('botDiff');
+  const mapEl = document.getElementById('mapSelect');
   botCount = Math.max(0, Math.min(7, parseInt(range.value, 10) || 0));
   botDifficulty = diff.value || 'normal';
+  if (mapEl && MAPS[mapEl.value]) currentMap = mapEl.value;
   document.getElementById('botCountLabel').textContent = String(botCount);
 }
 document.getElementById('botCount').addEventListener('input', () => {
@@ -1159,6 +1299,11 @@ document.getElementById('botCount').addEventListener('input', () => {
   renderLobbyList();
 });
 document.getElementById('botDiff').addEventListener('change', () => {
+  if (!isHost) return;
+  readBotControls();
+  renderLobbyList();
+});
+document.getElementById('mapSelect').addEventListener('change', () => {
   if (!isHost) return;
   readBotControls();
   renderLobbyList();
@@ -1219,7 +1364,11 @@ function hostTick(dt){
 function clientRenderTick(dt){
   if (!lastSnapshot){ renderHud(NUM_PLAYERS, timeLeft); return; }
   const snap = lastSnapshot;
-  if (snap.round !== clientRoundId){ clientRoundId = snap.round; rebuildPlayers(); }
+  if (snap.round !== clientRoundId){
+    clientRoundId = snap.round;
+    if (snap.map && MAPS[snap.map]) loadMap(snap.map);
+    rebuildPlayers();
+  }
   snap.players.forEach((sp,i) => {
     const p = players[i];
     const dxp = sp.x - p.mesh.position.x, dzp = sp.z - p.mesh.position.z;
@@ -1240,7 +1389,9 @@ function clientRenderTick(dt){
       return;
     }
     p.mesh.visible = true;
+    if (typeof sp.hp === 'number') p.hp = sp.hp;
     if (sp.name) p.setDisplayName(sp.name);
+    else drawPlayerLabel(p);
     if (p.hasLeaf && !sp.hasLeaf) p.eliminate();
     p.hasLeaf = sp.hasLeaf;
     p.swingTimer = sp.swingTimer;
@@ -1256,12 +1407,12 @@ setInterval(() => {
   if (phase !== 'playing') return;
   if (isHost){
     netSend({
-      type: 'state', round: roundId, t: Math.max(0,timeLeft),
+      type: 'state', round: roundId, t: Math.max(0,timeLeft), map: currentMap,
       remaining: players.filter(p=>p.hasLeaf && p.mesh.visible).length,
       gameOver, bannerText: gameOver ? document.getElementById('bannerText').textContent : '',
       players: players.map(p => ({
         x:p.mesh.position.x, y:p.mesh.position.y, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
-        hasLeaf:p.hasLeaf, swingTimer:p.swingTimer, active: p.mesh.visible, name: p.displayName
+        hasLeaf:p.hasLeaf, hp:p.hp, swingTimer:p.swingTimer, active: p.mesh.visible, name: p.displayName
       }))
     });
   } else if (mySlot !== null){
