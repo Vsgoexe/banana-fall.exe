@@ -29,6 +29,10 @@
   .join-row{display:flex;gap:8px;margin:8px 0;}
   .join-row input{flex:1;padding:10px;font-size:18px;letter-spacing:4px;text-align:center;
     text-transform:uppercase;border-radius:8px;border:1px solid #3d5a2a;background:#0b120a;color:#ffe066;}
+  #playerName{width:100%;box-sizing:border-box;margin:0 0 10px;padding:10px;font-size:16px;
+    text-align:center;border-radius:8px;border:1px solid #3d5a2a;background:#0b120a;color:#ffe066;}
+  #btnMute{position:fixed;top:12px;right:12px;z-index:6;padding:6px 10px;border:0;border-radius:8px;
+    background:#00000066;color:#ffe066;cursor:pointer;font-size:16px;}
   #lobbyList{list-style:none;padding:0;margin:12px 0;text-align:left;}
   #lobbyList li{padding:6px 10px;margin:4px 0;background:#00000055;border-radius:6px;}
   .room-code{font-size:28px;letter-spacing:8px;color:#ffe066;font-weight:700;}
@@ -48,6 +52,7 @@
   <span>You are: <b id="youLabel">Connecting…</b></span>
   <span>⏱ <b id="timer">90</b>s</span>
 </div>
+<button id="btnMute" type="button" title="Mute">🔊</button>
 <div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Right-click + drag: look / turn
   &nbsp;|&nbsp; Left-click: swing stick &nbsp;|&nbsp; Tag someone and the banna drops!</div>
 <div id="banner">
@@ -59,6 +64,7 @@
   <div class="panel">
     <h1>BANNA FALL</h1>
     <p class="sub">Open the site. Create a room. Friends join with your code.</p>
+    <input id="playerName" maxlength="12" placeholder="Your name" autocomplete="nickname">
     <button id="btnCreate" type="button">Play — Create Room</button>
     <div class="join-row">
       <input id="joinCode" maxlength="4" placeholder="CODE" autocomplete="off">
@@ -271,6 +277,32 @@ const JUMP_SPEED = 8.2;
 const GRAVITY = 24;
 let botCount = 3;
 let botDifficulty = 'normal';
+const BOT_NAMES = ['Tiki','Drum','Leaf','Coco','Mango','Torch','Vine','Pebble'];
+function sanitizeName(s, fallback){
+  s = String(s || '').replace(/[^\w\s\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 12);
+  return s || fallback;
+}
+function makeNameSprite(text){
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 256, 64);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(8, 12, 240, 40);
+  ctx.fillStyle = '#ffe066';
+  ctx.font = 'bold 26px system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 32);
+  const tex = new THREE.CanvasTexture(canvas);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  spr.position.y = 2.55;
+  spr.scale.set(1.7, 0.42, 1);
+  spr.userData.canvas = canvas;
+  spr.userData.tex = tex;
+  return spr;
+}
 
 
 class Player {
@@ -291,6 +323,24 @@ class Player {
     this.walkT = Math.random()*10;
     this.protectedNow = false;
     this.vy = 0;
+    this.displayName = 'Player ' + (i + 1);
+    this.nameSprite = makeNameSprite(this.displayName);
+    this.mesh.add(this.nameSprite);
+  }
+  setDisplayName(name){
+    this.displayName = sanitizeName(name, 'Player ' + (this.id + 1));
+    if (!this.nameSprite) return;
+    const canvas = this.nameSprite.userData.canvas;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 256, 64);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(8, 12, 240, 40);
+    ctx.fillStyle = '#ffe066';
+    ctx.font = 'bold 26px system-ui,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.displayName, 128, 32);
+    this.nameSprite.userData.tex.needsUpdate = true;
   }
   distTo(o){ return Math.hypot(this.mesh.position.x-o.mesh.position.x, this.mesh.position.z-o.mesh.position.z); }
   distToCenter(){ return Math.hypot(this.mesh.position.x, this.mesh.position.z); }
@@ -350,12 +400,14 @@ class Player {
     if (!this.hasLeaf || this.swingCooldown > 0) return;
     this.swingTimer = 0.35;
     this.swingCooldown = 0.6;
+    playSwish();
   }
   eliminate(){
     if (!this.hasLeaf) return;
     this.hasLeaf = false;
     dropLeaf(this);
     dropBanana(this);
+    playNooo();
     const p = this.mesh.userData.parts;
     p.leftArm.rotation.set(0, 0, 1.0);
     p.rightArm.rotation.set(0, 0, -1.0);
@@ -364,10 +416,76 @@ class Player {
 
 // ================= Leaf + banana drop physics =================
 let fallingLeaves = [];
-let audioCtx = null;
-function playBananaPop(){
+let audioCtx = null, masterGain = null, musicGain = null, sfxGain = null, drumNode = null, muted = false;
+
+function ensureAudio(){
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (!masterGain){
+      masterGain = audioCtx.createGain();
+      musicGain = audioCtx.createGain();
+      sfxGain = audioCtx.createGain();
+      musicGain.gain.value = 0.32;
+      sfxGain.gain.value = 0.6;
+      musicGain.connect(masterGain);
+      sfxGain.connect(masterGain);
+      masterGain.connect(audioCtx.destination);
+      startDrums();
+    }
+  } catch (err) {}
+}
+function setMuted(on){
+  muted = on;
+  if (masterGain) masterGain.gain.value = on ? 0 : 1;
+  document.getElementById('btnMute').textContent = on ? '🔇' : '🔊';
+}
+function startDrums(){
+  if (!audioCtx || drumNode) return;
+  const sr = audioCtx.sampleRate;
+  const beat = 60 / 108;
+  const beats = 8;
+  const len = Math.floor(sr * beat * beats);
+  const buf = audioCtx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  function addKick(at){
+    const n = Math.floor(0.2 * sr), start = Math.floor(at * sr);
+    for (let i = 0; i < n && start + i < len; i++){
+      const t = i / sr;
+      d[start + i] += Math.sin(2 * Math.PI * (80 * Math.exp(-t * 16)) * t) * Math.exp(-t * 22) * 0.95;
+    }
+  }
+  function addTom(at, f0){
+    const n = Math.floor(0.14 * sr), start = Math.floor(at * sr);
+    for (let i = 0; i < n && start + i < len; i++){
+      const t = i / sr;
+      d[start + i] += Math.sin(2 * Math.PI * f0 * Math.exp(-t * 7) * t) * Math.exp(-t * 18) * 0.42;
+    }
+  }
+  function addShaker(at){
+    const n = Math.floor(0.045 * sr), start = Math.floor(at * sr);
+    for (let i = 0; i < n && start + i < len; i++){
+      d[start + i] += (Math.random() * 2 - 1) * Math.exp(-i / sr * 70) * 0.11;
+    }
+  }
+  for (let b = 0; b < beats; b++){
+    const t = b * beat;
+    addKick(t);
+    addTom(t + beat * 0.5, b % 2 ? 210 : 160);
+    addShaker(t);
+    addShaker(t + beat * 0.25);
+    addShaker(t + beat * 0.5);
+  }
+  drumNode = audioCtx.createBufferSource();
+  drumNode.buffer = buf;
+  drumNode.loop = true;
+  drumNode.connect(musicGain);
+  drumNode.start();
+}
+function playBananaPop(){
+  try {
+    ensureAudio();
+    if (!audioCtx || muted) return;
     const t = audioCtx.currentTime;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
@@ -376,8 +494,59 @@ function playBananaPop(){
     o.frequency.exponentialRampToValueAtTime(120, t + 0.2);
     g.gain.setValueAtTime(0.14, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-    o.connect(g); g.connect(audioCtx.destination);
+    o.connect(g); g.connect(sfxGain);
     o.start(t); o.stop(t + 0.24);
+  } catch (err) {}
+}
+function playSwish(){
+  try {
+    ensureAudio();
+    if (!audioCtx || muted) return;
+    const t = audioCtx.currentTime;
+    const dur = 0.16;
+    const frames = Math.floor(audioCtx.sampleRate * dur);
+    const buf = audioCtx.createBuffer(1, frames, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1800, t);
+    filter.frequency.exponentialRampToValueAtTime(4200, t + dur);
+    filter.Q.value = 1.2;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.45, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(filter); filter.connect(g); g.connect(sfxGain);
+    src.start(t); src.stop(t + dur);
+  } catch (err) {}
+}
+function playNooo(){
+  try {
+    ensureAudio();
+    if (!audioCtx || muted) return;
+    const t = audioCtx.currentTime;
+    const o1 = audioCtx.createOscillator();
+    const o2 = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const f = audioCtx.createBiquadFilter();
+    o1.type = 'sawtooth';
+    o2.type = 'triangle';
+    o1.frequency.setValueAtTime(320, t);
+    o1.frequency.exponentialRampToValueAtTime(110, t + 0.85);
+    o2.frequency.setValueAtTime(330, t);
+    o2.frequency.exponentialRampToValueAtTime(118, t + 0.85);
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(900, t);
+    f.frequency.exponentialRampToValueAtTime(400, t + 0.85);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.28, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.95);
+    o1.connect(f); o2.connect(f); f.connect(g); g.connect(sfxGain);
+    o1.start(t); o2.start(t);
+    o1.stop(t + 1); o2.stop(t + 1);
   } catch (err) {}
 }
 function dropLeaf(player){
@@ -464,8 +633,10 @@ function applySeatVisibility(){
       p.hasLeaf = false;
     } else if (bots.has(i)){
       p.speed = cfg.speed;
+      p.setDisplayName(BOT_NAMES[i % BOT_NAMES.length]);
     } else {
       p.speed = 4.9;
+      p.setDisplayName(slotNames[i] || ('Player ' + (i + 1)));
     }
   });
 }
@@ -494,7 +665,7 @@ function renderHud(remaining, timeVal){
   document.getElementById('pTotal').textContent = total;
   document.getElementById('timer').textContent = Math.ceil(Math.max(0,timeVal));
   document.getElementById('youLabel').textContent =
-    mySlot === null ? 'Connecting…' : ('Player ' + (mySlot+1) + (isHost ? ' • Host' : ' • Guest'));
+    mySlot === null ? 'Connecting…' : ((players && players[mySlot] && players[mySlot].displayName) || 'Player ' + (mySlot+1)) + (isHost ? ' • Host' : ' • Guest');
 }
 function showPlayingUI(on){
   document.getElementById('hud').style.display = on ? 'flex' : 'none';
@@ -603,6 +774,8 @@ const localId = 'p_' + Math.random().toString(36).slice(2) + Date.now().toString
 let isHost = false;
 let mySlot = null;
 const slotOwner = new Array(NUM_PLAYERS).fill(null);
+const slotNames = new Array(NUM_PLAYERS).fill('');
+let localName = 'Player';
 const lastInput = {};
 let lastSnapshot = null;
 let clientRoundId = -1;
@@ -615,6 +788,13 @@ let peerConns = [];
 let hostConn = null;
 let createTries = 0;
 
+function readLocalName(){
+  const el = document.getElementById('playerName');
+  localName = sanitizeName(el && el.value, 'Player');
+  if (el) el.value = localName;
+  try { localStorage.setItem('bannaName', localName); } catch (err) {}
+  return localName;
+}
 const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
@@ -679,6 +859,8 @@ function enterLobbyAsHost(){
   mySlot = 0;
   slotOwner.fill(null);
   slotOwner[0] = localId;
+  slotNames.fill('');
+  slotNames[0] = readLocalName();
   phase = 'lobby';
   document.getElementById('menu').style.display = 'none';
   document.getElementById('lobby').style.display = 'flex';
@@ -706,7 +888,7 @@ function enterLobbyAsGuest(){
   document.getElementById('botGuestLine').style.display = 'block';
   document.getElementById('roomCodeLabel').textContent = roomCode || '----';
   document.getElementById('shareHint').textContent = 'Waiting for the host to start… keep this tab open.';
-  netSend({type:'join', id: localId});
+  netSend({type:'join', id: localId, name: readLocalName()});
   setMenuErr('');
 }
 function renderLobbyList(){
@@ -719,7 +901,8 @@ function renderLobbyList(){
   if (isHost){
     ul.innerHTML = humans.map(h => {
       const you = h.id === localId ? ' (you)' : '';
-      return '<li>Player ' + (h.slot+1) + you + '</li>';
+      const nm = slotNames[h.slot] || ('Player ' + (h.slot+1));
+      return '<li>' + nm + you + '</li>';
     }).join('') + (bots ? '<li style="opacity:.7">' + bots + ' bot' + (bots===1?'':'s') + ' · ' + botDifficulty + '</li>' : '<li style="opacity:.7">No bots</li>');
     document.getElementById('botSettings').style.display = 'block';
     document.getElementById('botGuestLine').style.display = 'none';
@@ -729,7 +912,7 @@ function renderLobbyList(){
       code: roomCode,
       bots: bots,
       difficulty: botDifficulty,
-      players: humans.map(h => ({slot:h.slot, youId: h.id}))
+      players: humans.map(h => ({slot:h.slot, youId: h.id, name: slotNames[h.slot]}))
     });
   }
 }
@@ -744,6 +927,7 @@ function hostMessageHandler(m){
       netSend({type:'welcome', id: m.id, slot: null});
     } else {
       slotOwner[slot] = m.id;
+      slotNames[slot] = sanitizeName(m.name, 'Player');
       netSend({type:'welcome', id: m.id, slot, code: roomCode});
       renderLobbyList();
     }
@@ -773,7 +957,7 @@ function guestMessageHandler(m){
     if (m.difficulty) botDifficulty = m.difficulty;
     ul.innerHTML = list.map(h => {
       const you = (mySlot !== null && h.slot === mySlot) || h.youId === localId ? ' (you)' : '';
-      return '<li>Player ' + (h.slot+1) + you + '</li>';
+      return '<li>' + (h.name || ('Player ' + (h.slot+1))) + you + '</li>';
     }).join('');
     const line = document.getElementById('botGuestLine');
     document.getElementById('botSettings').style.display = 'none';
@@ -799,6 +983,7 @@ function beginMatchFromNet(round){
 
 function startMatch(){
   if (!isHost) return;
+  ensureAudio();
   readBotControls();
   if (humanCount() + effectiveBots() < 2){
     setLobbyErr('Need at least 2 fighters. Add a friend or a bot.');
@@ -818,6 +1003,8 @@ function onPlayAgainClick(){
 }
 
 async function onCreateRoom(){
+  ensureAudio();
+  readLocalName();
   setMenuErr('Creating room…');
   if (typeof Peer === 'undefined'){
     setMenuErr('Could not load online play. Refresh and try again.');
@@ -849,6 +1036,8 @@ function startOnlineHost(){
   });
 }
 function onJoinRoom(){
+  ensureAudio();
+  readLocalName();
   setMenuErr('');
   const code = (document.getElementById('joinCode').value || '').trim().toUpperCase();
   if (!code || code.length < 4){ setMenuErr('Enter a 4-letter room code.'); return; }
@@ -890,6 +1079,8 @@ function onJoinRoom(){
   });
 }
 function startLocalTabs(forceGuest){
+  ensureAudio();
+  readLocalName();
   if (!bc){ setMenuErr('This browser cannot do local-tab play.'); return; }
   netMode = 'bc';
   if (!bcHooked){
@@ -988,7 +1179,7 @@ function hostTick(dt){
   const remaining = players.filter(p=>p.hasLeaf && p.mesh.visible).length;
   if (remaining <= 1){
     const winner = players.find(p=>p.hasLeaf);
-    endGame(winner ? `🍌 Player ${winner.id+1} wins — last banna standing!` : 'Everyone lost their leaf at once!');
+    endGame(winner ? `🍌 ${winner.displayName} wins — last banna standing!` : 'Everyone lost their leaf at once!');
   } else if (timeLeft <= 0){
     endGame(`⏱ Time's up! ${remaining} players still have their leaf!`);
   }
@@ -1018,6 +1209,7 @@ function clientRenderTick(dt){
       return;
     }
     p.mesh.visible = true;
+    if (sp.name) p.setDisplayName(sp.name);
     if (p.hasLeaf && !sp.hasLeaf) p.eliminate();
     p.hasLeaf = sp.hasLeaf;
     p.swingTimer = sp.swingTimer;
@@ -1038,7 +1230,7 @@ setInterval(() => {
       gameOver, bannerText: gameOver ? document.getElementById('bannerText').textContent : '',
       players: players.map(p => ({
         x:p.mesh.position.x, y:p.mesh.position.y, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
-        hasLeaf:p.hasLeaf, swingTimer:p.swingTimer, active: p.mesh.visible
+        hasLeaf:p.hasLeaf, swingTimer:p.swingTimer, active: p.mesh.visible, name: p.displayName
       }))
     });
   } else if (mySlot !== null){
@@ -1114,6 +1306,14 @@ function loop(){
 }
 
 rebuildPlayers();
+try {
+  const saved = localStorage.getItem('bannaName');
+  if (saved) document.getElementById('playerName').value = saved;
+} catch (err) {}
+document.getElementById('btnMute').addEventListener('click', () => {
+  ensureAudio();
+  setMuted(!muted);
+});
 loop();
 </script>
 </body>
