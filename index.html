@@ -6,19 +6,23 @@
 <title>banna fall</title>
 <style>
   html,body{margin:0;height:100%;background:#0b120a;color:#eee;font-family:system-ui,sans-serif;overflow:hidden;}
-  #hud{position:fixed;top:10px;left:50%;transform:translateX(-50%);display:none;gap:20px;
-    padding:8px 16px;font-size:14px;background:#00000066;border-radius:8px;z-index:5;white-space:nowrap;}
+  #hud{position:fixed;top:10px;left:50%;transform:translateX(-50%);display:none;gap:16px;
+    padding:8px 16px;font-size:14px;background:#00000066;border-radius:8px;z-index:5;
+    flex-wrap:wrap;justify-content:center;max-width:92vw;}
   #tip{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-size:12px;
     opacity:.8;text-align:center;max-width:720px;z-index:5;display:none;}
   #banner{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);
     background:#000000cc;padding:20px 32px;border-radius:12px;font-size:24px;
     display:none;text-align:center;z-index:6;}
-  #banner button{display:block;margin:12px auto 0;padding:6px 16px;font-size:14px;cursor:pointer;}
+  #banner button{display:inline-block;margin:12px 6px 0;padding:8px 16px;font-size:14px;cursor:pointer;
+    border:0;border-radius:8px;background:#ffe066;color:#1a1400;font-weight:700;}
+  #banner button.secondary{background:#2c4a26;color:#eee;}
   canvas{display:block;}
   .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    background:#0b120acc;z-index:8;padding:24px;}
+    background:#0b120a99;z-index:8;padding:24px;overflow:auto;}
   .panel{background:#12210fcc;border:1px solid #3d5a2a;border-radius:16px;padding:28px 32px;
-    text-align:center;min-width:320px;max-width:440px;box-shadow:0 12px 40px #0008;}
+    text-align:center;min-width:320px;max-width:440px;box-shadow:0 12px 40px #0008;
+    max-height:90vh;overflow-y:auto;}
   .panel h1{margin:0 0 6px;font-size:42px;letter-spacing:2px;color:#ffe066;}
   .panel h2{margin:0 0 8px;color:#ffe066;}
   .panel .sub{opacity:.85;margin:0 0 20px;font-size:14px;}
@@ -52,13 +56,15 @@
   <span>You are: <b id="youLabel">Connecting…</b></span>
   <span>❤️ <b id="hpLabel">3</b>/3</span>
   <span>⏱ <b id="timer">90</b>s</span>
+  <span>🗺️ <b id="mapHud">Campfire Grove</b></span>
 </div>
 <button id="btnMute" type="button" title="Mute">🔊</button>
 <div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Right-click + drag: look / turn
   &nbsp;|&nbsp; Left-click: swing stick (3 hits to knock the banana) &nbsp;|&nbsp; Hide behind trees, walls, and crates!</div>
 <div id="banner">
   <div id="bannerText"></div>
-  <button onclick="onPlayAgainClick()">Play Again</button>
+  <button type="button" onclick="onPlayAgainClick()">Play Again</button>
+  <button type="button" class="secondary" onclick="onReturnLobbyClick()">Return to lobby</button>
 </div>
 
 <div id="menu" class="overlay">
@@ -85,19 +91,19 @@
     <p class="share" id="shareHint"></p>
     <ul id="lobbyList"></ul>
     <div id="botSettings" class="settings">
+      <label>Map
+        <select id="mapSelect">
+          <option value="grove" selected>Campfire Grove</option>
+          <option value="ruins">Ruin Yard</option>
+          <option value="market">Banana Market</option>
+        </select>
+      </label>
       <label>Bots <input id="botCount" type="range" min="0" max="7" value="3"><span id="botCountLabel">3</span></label>
       <label>Difficulty
         <select id="botDiff">
           <option value="easy">Easy</option>
           <option value="normal" selected>Normal</option>
           <option value="hard">Hard</option>
-        </select>
-      </label>
-      <label>Map
-        <select id="mapSelect">
-          <option value="grove" selected>Campfire Grove</option>
-          <option value="ruins">Ruin Yard</option>
-          <option value="market">Banana Market</option>
         </select>
       </label>
     </div>
@@ -115,7 +121,7 @@
 // ================= Scene setup =================
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b1a0c);
-scene.fog = new THREE.Fog(0x0b1a0c, 15, 70);
+scene.fog = new THREE.Fog(0x0b1a0c, 32, 95);
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 500);
 const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -183,21 +189,21 @@ function addBoxCover(x, z, w, d, h, color, jumpOver){
 }
 function addTreeCover(x, z){
   const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.38, 2, 6), new THREE.MeshStandardMaterial({color: 0x4a3520}));
-  trunk.position.y = 1;
-  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.35, 2.8, 7), new THREE.MeshStandardMaterial({color: 0x2f6b2f}));
-  leaves.position.y = 2.8;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.5, 2.4, 6), new THREE.MeshStandardMaterial({color: 0x4a3520}));
+  trunk.position.y = 1.2;
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.9, 3.8, 7), new THREE.MeshStandardMaterial({color: 0x2f6b2f}));
+  leaves.position.y = 3.4;
   g.add(trunk, leaves);
   g.position.set(x, 0, z);
   mapGroup.add(g);
-  addObstacle(x - 0.5, x + 0.5, z - 0.5, z + 0.5, 2.4, false);
+  addObstacle(x - 0.65, x + 0.65, z - 0.65, z + 0.65, 2.8, false);
 }
 function addRock(x, z, s){
-  const m = new THREE.Mesh(new THREE.BoxGeometry(s * 1.6, s * 1.2, s * 1.6), new THREE.MeshStandardMaterial({color: 0x6a6a62}));
-  m.position.set(x, s * 0.6, z);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(s * 2.2, s * 1.6, s * 2.2), new THREE.MeshStandardMaterial({color: 0x6a6a62}));
+  m.position.set(x, s * 0.8, z);
   m.rotation.y = 0.4;
   mapGroup.add(m);
-  addObstacle(x - s * 0.8, x + s * 0.8, z - s * 0.8, z + s * 0.8, s * 1.1, s < 0.7);
+  addObstacle(x - s, x + s, z - s, z + s, s * 1.5, s < 0.85);
 }
 function clearMap(){
   while (mapGroup.children.length) mapGroup.remove(mapGroup.children[0]);
@@ -215,37 +221,40 @@ const MAPS = {
     name: 'Campfire Grove',
     ground: 0x2c4a26, bg: 0x0b1a0c, fog: 0x0b1a0c,
     build(){
-      const spots = [[6,8],[-7,5],[8,-6],[-5,-8],[10,2],[-9,-2],[0,11],[0,-12],[12,10],[-11,9],[11,-11],[-12,-10]];
-      spots.forEach(([x,z], i) => i % 3 === 2 ? addRock(x, z, 0.7) : addTreeCover(x, z));
+      const trees = [[6,8],[-7,5],[8,-6],[-5,-8],[10,2],[-9,-2],[0,12],[0,-13],[13,10],[-12,9],[12,-12],[-13,-10],[16,5],[-16,6],[5,16],[-6,-16],[15,-9],[-15,9]];
+      trees.forEach(([x,z]) => addTreeCover(x, z));
+      [[7,-2],[-8,3],[3,9],[-4,-10],[11,6]].forEach(([x,z]) => addRock(x, z, 1.1));
     }
   },
   ruins: {
     name: 'Ruin Yard',
     ground: 0x4a4638, bg: 0x16140e, fog: 0x16140e,
     build(){
-      addBoxCover(8, 0, 1.2, 8, 2.4, 0x8a7a62, false);
-      addBoxCover(-8, 0, 1.2, 8, 2.4, 0x8a7a62, false);
-      addBoxCover(0, 9, 7, 1.2, 2.2, 0x7a6a54, false);
-      addBoxCover(0, -9, 7, 1.2, 2.2, 0x7a6a54, false);
-      addBoxCover(5, 5, 2.2, 2.2, 2.6, 0x6e624c, false);
-      addBoxCover(-6, -5, 2.2, 2.2, 2.6, 0x6e624c, false);
-      addBoxCover(4, -4, 1.6, 1.6, 0.7, 0x5a5040, true);
-      addBoxCover(-4, 4, 1.6, 1.6, 0.7, 0x5a5040, true);
+      addBoxCover(8, 0, 1.6, 10, 3.2, 0x8a7a62, false);
+      addBoxCover(-8, 0, 1.6, 10, 3.2, 0x8a7a62, false);
+      addBoxCover(0, 10, 9, 1.6, 3.0, 0x7a6a54, false);
+      addBoxCover(0, -10, 9, 1.6, 3.0, 0x7a6a54, false);
+      addBoxCover(6, 6, 3.2, 3.2, 3.4, 0x6e624c, false);
+      addBoxCover(-7, -6, 3.2, 3.2, 3.4, 0x6e624c, false);
+      addBoxCover(-6, 6, 2.4, 2.4, 2.8, 0x746850, false);
+      addBoxCover(6, -6, 2.4, 2.4, 2.8, 0x746850, false);
+      addBoxCover(4, -3, 2.0, 2.0, 0.8, 0x5a5040, true);
+      addBoxCover(-4, 3, 2.0, 2.0, 0.8, 0x5a5040, true);
     }
   },
   market: {
     name: 'Banana Market',
     ground: 0x3a4a22, bg: 0x12180c, fog: 0x12180c,
     build(){
-      const stalls = [[7,7],[7,-7],[-7,7],[-7,-7],[10,0],[-10,0],[0,10],[0,-10]];
+      const stalls = [[8,8],[8,-8],[-8,8],[-8,-8],[12,0],[-12,0],[0,12],[0,-12],[12,12],[-12,-12]];
       stalls.forEach(([x,z]) => {
-        addBoxCover(x, z, 2.4, 1.4, 1.6, 0x8a5a2a, false);
-        addBoxCover(x + 1.3, z, 0.2, 1.4, 2.1, 0xc4a24a, false);
+        addBoxCover(x, z, 3.2, 2.0, 2.2, 0x8a5a2a, false);
+        addBoxCover(x + 1.7, z, 0.28, 2.0, 2.8, 0xc4a24a, false);
       });
-      addBoxCover(4, 0, 1.1, 1.1, 0.75, 0xc9a227, true);
-      addBoxCover(-4, 0, 1.1, 1.1, 0.75, 0xc9a227, true);
-      addBoxCover(0, 4, 1.1, 1.1, 0.75, 0xe0c04a, true);
-      addBoxCover(0, -4, 1.1, 1.1, 0.75, 0xe0c04a, true);
+      addBoxCover(5, 0, 1.5, 1.5, 0.85, 0xc9a227, true);
+      addBoxCover(-5, 0, 1.5, 1.5, 0.85, 0xc9a227, true);
+      addBoxCover(0, 5, 1.5, 1.5, 0.85, 0xe0c04a, true);
+      addBoxCover(0, -5, 1.5, 1.5, 0.85, 0xe0c04a, true);
     }
   }
 };
@@ -258,6 +267,8 @@ function loadMap(id){
   scene.fog.color.setHex(spec.fog);
   spec.build();
   addRimTrees();
+  const hud = document.getElementById('mapHud');
+  if (hud) hud.textContent = spec.name;
 }
 
 function makeTree(x,z){
@@ -426,7 +437,7 @@ function drawPlayerLabel(p){
 class Player {
   constructor(i){
     const a = (i/NUM_PLAYERS)*Math.PI*2;
-    const r = 14;
+    const r = 17;
     this.mesh = makeCharacter(PALETTE[i % PALETTE.length]);
     this.mesh.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
     this.mesh.rotation.y = a;
@@ -824,6 +835,8 @@ function renderHud(remaining, timeVal){
     mySlot === null ? 'Connecting…' : ((players && players[mySlot] && players[mySlot].displayName) || 'Player ' + (mySlot+1)) + (isHost ? ' • Host' : ' • Guest');
   const me = players && mySlot !== null ? players[mySlot] : null;
   document.getElementById('hpLabel').textContent = me ? Math.max(0, me.hp) : MAX_HP;
+  const mapHud = document.getElementById('mapHud');
+  if (mapHud) mapHud.textContent = MAPS[currentMap] ? MAPS[currentMap].name : currentMap;
 }
 function showPlayingUI(on){
   document.getElementById('hud').style.display = on ? 'flex' : 'none';
@@ -1108,6 +1121,8 @@ function hostMessageHandler(m){
     if (slot !== -1 && players && players[slot]) players[slot].jump();
   } else if (m.type === 'restart'){
     if (phase === 'playing') resetGame();
+  } else if (m.type === 'to-lobby'){
+    if (phase === 'playing') returnEveryoneToLobby();
   }
 }
 function guestMessageHandler(m){
@@ -1122,7 +1137,10 @@ function guestMessageHandler(m){
     const list = m.players || [];
     if (typeof m.bots === 'number') botCount = m.bots;
     if (m.difficulty) botDifficulty = m.difficulty;
-    if (m.map && MAPS[m.map]) currentMap = m.map;
+    if (m.map && MAPS[m.map] && m.map !== currentMap){
+      currentMap = m.map;
+      loadMap(currentMap);
+    } else if (m.map && MAPS[m.map]) currentMap = m.map;
     ul.innerHTML = list.map(h => {
       const you = (mySlot !== null && h.slot === mySlot) || h.youId === localId ? ' (you)' : '';
       return '<li>' + (h.name || ('Player ' + (h.slot+1))) + you + '</li>';
@@ -1131,6 +1149,9 @@ function guestMessageHandler(m){
     document.getElementById('botSettings').style.display = 'none';
     line.style.display = 'block';
     line.textContent = (botCount ? (botCount + ' bot' + (botCount===1?'':'s')) : 'No bots') + ' · ' + botDifficulty + ' · ' + (MAPS[currentMap] ? MAPS[currentMap].name : currentMap);
+    if (phase === 'playing') applyLobbyScreen(false);
+  } else if (m.type === 'to-lobby'){
+    applyLobbyScreen(false);
   } else if (m.type === 'start'){
     if (typeof m.bots === 'number') botCount = m.bots;
     if (m.difficulty) botDifficulty = m.difficulty;
@@ -1169,6 +1190,31 @@ function onPlayAgainClick(){
   if (phase !== 'playing') return;
   if (isHost) resetGame();
   else netSend({type:'restart', id: localId});
+}
+function applyLobbyScreen(asHost){
+  phase = 'lobby';
+  gameOver = false;
+  lastSnapshot = null;
+  document.getElementById('banner').style.display = 'none';
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('tip').style.display = 'none';
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('lobby').style.display = 'flex';
+  document.getElementById('btnStart').style.display = asHost ? 'block' : 'none';
+  document.getElementById('btnCopyLobby').style.display = asHost ? 'block' : 'none';
+  document.getElementById('botSettings').style.display = asHost ? 'block' : 'none';
+  document.getElementById('botGuestLine').style.display = asHost ? 'none' : 'block';
+  loadMap(currentMap);
+}
+function returnEveryoneToLobby(){
+  applyLobbyScreen(true);
+  netSend({type:'to-lobby'});
+  renderLobbyList();
+}
+function onReturnLobbyClick(){
+  if (phase !== 'playing') return;
+  if (isHost) returnEveryoneToLobby();
+  else netSend({type:'to-lobby', id: localId});
 }
 
 async function onCreateRoom(){
@@ -1306,6 +1352,7 @@ document.getElementById('botDiff').addEventListener('change', () => {
 document.getElementById('mapSelect').addEventListener('change', () => {
   if (!isHost) return;
   readBotControls();
+  loadMap(currentMap);
   renderLobbyList();
 });
 document.getElementById('joinCode').addEventListener('keydown', e => {
