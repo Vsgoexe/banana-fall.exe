@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>banna fall</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <style>
   html,body{margin:0;height:100%;background:#0b120a;color:#eee;font-family:system-ui,sans-serif;overflow:hidden;}
   #hud{position:fixed;top:10px;left:50%;transform:translateX(-50%);display:none;gap:16px;
@@ -11,12 +13,13 @@
     flex-wrap:wrap;justify-content:center;max-width:92vw;}
   #tip{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-size:12px;
     opacity:.8;text-align:center;max-width:720px;z-index:5;display:none;}
-  #banner{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);
-    background:#000000cc;padding:20px 32px;border-radius:12px;font-size:24px;
-    display:none;text-align:center;z-index:6;}
-  #banner button{display:inline-block;margin:12px 6px 0;padding:8px 16px;font-size:14px;cursor:pointer;
+  #banner{position:fixed;top:42%;left:50%;transform:translate(-50%,-50%);
+    background:#000000ee;padding:22px 28px 24px;border-radius:12px;font-size:22px;
+    display:none;text-align:center;z-index:20;min-width:300px;max-width:92vw;}
+  #banner .banner-actions{display:flex;flex-direction:column;gap:10px;margin-top:16px;}
+  #banner button{display:block;width:100%;margin:0;padding:12px 16px;font-size:16px;cursor:pointer;
     border:0;border-radius:8px;background:#ffe066;color:#1a1400;font-weight:700;}
-  #banner button.secondary{background:#2c4a26;color:#eee;}
+  #banner button.secondary{background:#3d5a2a;color:#ffe066;}
   canvas{display:block;}
   .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
     background:#0b120a99;z-index:8;padding:24px;overflow:auto;}
@@ -63,8 +66,10 @@
   &nbsp;|&nbsp; Left-click: swing stick (3 hits to knock the banana) &nbsp;|&nbsp; Hide behind trees, walls, and crates!</div>
 <div id="banner">
   <div id="bannerText"></div>
-  <button type="button" onclick="onPlayAgainClick()">Play Again</button>
-  <button type="button" class="secondary" onclick="onReturnLobbyClick()">Return to lobby</button>
+  <div class="banner-actions">
+    <button type="button" id="btnReturnLobby">Return to lobby</button>
+    <button type="button" id="btnPlayAgain" class="secondary">Play Again</button>
+  </div>
 </div>
 
 <div id="menu" class="overlay">
@@ -80,7 +85,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/ — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=3 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -974,7 +979,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=3';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
@@ -1330,6 +1335,8 @@ document.getElementById('btnCreate').addEventListener('click', onCreateRoom);
 document.getElementById('btnJoin').addEventListener('click', onJoinRoom);
 document.getElementById('btnLocal').addEventListener('click', () => startLocalTabs(false));
 document.getElementById('btnStart').addEventListener('click', startMatch);
+document.getElementById('btnReturnLobby').addEventListener('click', onReturnLobbyClick);
+document.getElementById('btnPlayAgain').addEventListener('click', onPlayAgainClick);
 function readBotControls(){
   const range = document.getElementById('botCount');
   const diff = document.getElementById('botDiff');
