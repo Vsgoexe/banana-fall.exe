@@ -34,11 +34,17 @@
   .room-code{font-size:28px;letter-spacing:8px;color:#ffe066;font-weight:700;}
   .err{color:#ff8a7a;min-height:1.2em;font-size:13px;}
   .share{font-size:13px;opacity:.9;word-break:break-all;}
+  .settings{text-align:left;margin:10px 0;font-size:14px;}
+  .settings label{display:flex;align-items:center;gap:10px;margin:8px 0;}
+  .settings input[type=range]{flex:1;}
+  .settings select{flex:1;padding:6px 8px;border-radius:6px;border:1px solid #3d5a2a;
+    background:#0b120a;color:#ffe066;font-size:14px;}
+  #botCountLabel{min-width:1.2em;color:#ffe066;font-weight:700;}
 </style>
 </head>
 <body>
 <div id="hud">
-  <span>🍌 Players left: <b id="pCount">8</b>/8</span>
+  <span>🍌 Players left: <b id="pCount">8</b>/<b id="pTotal">8</b></span>
   <span>You are: <b id="youLabel">Connecting…</b></span>
   <span>⏱ <b id="timer">90</b>s</span>
 </div>
@@ -71,9 +77,20 @@
     <div class="room-code" id="roomCodeLabel">----</div>
     <p class="share" id="shareHint"></p>
     <ul id="lobbyList"></ul>
+    <div id="botSettings" class="settings">
+      <label>Bots <input id="botCount" type="range" min="0" max="7" value="3"><span id="botCountLabel">3</span></label>
+      <label>Difficulty
+        <select id="botDiff">
+          <option value="easy">Easy</option>
+          <option value="normal" selected>Normal</option>
+          <option value="hard">Hard</option>
+        </select>
+      </label>
+    </div>
+    <p id="botGuestLine" class="sub" style="display:none;margin:8px 0"></p>
     <button id="btnStart" type="button">Start Game</button>
     <button id="btnCopyLobby" class="secondary" type="button">Copy invite</button>
-    <p class="sub">Keep this tab open. Empty slots fill with bots.</p>
+    <p class="sub">Keep this tab open. You choose how many bots join.</p>
     <p class="err" id="lobbyErr"></p>
   </div>
 </div>
@@ -245,6 +262,13 @@ const SAFE_CAPACITY = 2;
 const TAG_REACH = 2.6;
 const ARENA_R = 24;
 const NUM_PLAYERS = 8;
+const BOT_DIFF = {
+  easy:   { speed: 3.1, missChance: 0.55, wanderMix: 0.35, preferHumans: false },
+  normal: { speed: 4.5, missChance: 0.2,  wanderMix: 0.08, preferHumans: false },
+  hard:   { speed: 5.7, missChance: 0.04, wanderMix: 0,    preferHumans: true }
+};
+let botCount = 3;
+let botDifficulty = 'normal';
 
 class Player {
   constructor(i){
@@ -396,11 +420,41 @@ let timeLeft = 90, gameOver = false, roundId = 0;
 let phase = 'menu'; // menu | lobby | playing
 const clock = new THREE.Clock();
 
+function humanCount(){ return slotOwner.filter(Boolean).length; }
+function effectiveBots(){ return Math.min(botCount, Math.max(0, NUM_PLAYERS - humanCount())); }
+function botSlotSet(){
+  const n = effectiveBots();
+  const set = new Set();
+  for (let i=0; i<NUM_PLAYERS && set.size<n; i++){
+    if (!slotOwner[i]) set.add(i);
+  }
+  return set;
+}
+function isActiveSlot(i){
+  return !!slotOwner[i] || botSlotSet().has(i);
+}
+function applySeatVisibility(){
+  if (!players || !isHost) return;
+  const bots = botSlotSet();
+  const cfg = BOT_DIFF[botDifficulty] || BOT_DIFF.normal;
+  players.forEach((p,i) => {
+    const active = !!slotOwner[i] || bots.has(i);
+    p.mesh.visible = active;
+    if (!active){
+      p.hasLeaf = false;
+    } else if (bots.has(i)){
+      p.speed = cfg.speed;
+    } else {
+      p.speed = 4.9;
+    }
+  });
+}
 function rebuildPlayers(){
   if (players) players.forEach(p => scene.remove(p.mesh));
   fallingLeaves.forEach(f => scene.remove(f.obj));
   fallingLeaves = [];
   players = Array.from({length: NUM_PLAYERS}, (_,i) => new Player(i));
+  applySeatVisibility();
 }
 function resetGame(){
   rebuildPlayers();
@@ -416,6 +470,8 @@ function endGame(text){
 }
 function renderHud(remaining, timeVal){
   document.getElementById('pCount').textContent = remaining;
+  const total = players ? players.filter(p => p.mesh.visible).length : NUM_PLAYERS;
+  document.getElementById('pTotal').textContent = total;
   document.getElementById('timer').textContent = Math.ceil(Math.max(0,timeVal));
   document.getElementById('youLabel').textContent =
     mySlot === null ? 'Connecting…' : ('Player ' + (mySlot+1) + (isHost ? ' • Host' : ' • Guest'));
@@ -430,21 +486,28 @@ function showPlayingUI(on){
 // ================= Free-for-all AI =================
 function updateAI(p, dt){
   if (!p.hasLeaf) return;
+  const cfg = BOT_DIFF[botDifficulty] || BOT_DIFF.normal;
+  p.speed = cfg.speed;
   let target = null, nd = Infinity;
   for (const o of players){
-    if (o === p || !o.hasLeaf || o.protectedNow) continue;
-    const d = p.distTo(o);
+    if (o === p || !o.hasLeaf || o.protectedNow || !o.mesh.visible) continue;
+    let d = p.distTo(o);
+    if (cfg.preferHumans && slotOwner[o.id]) d *= 0.65;
     if (d < nd){ nd = d; target = o; }
   }
   let dx=0, dz=0, moving=false;
-  if (target){
+  const wanderNow = !target || Math.random() < cfg.wanderMix;
+  if (target && !wanderNow){
     dx = target.mesh.position.x - p.mesh.position.x;
     dz = target.mesh.position.z - p.mesh.position.z;
     if (nd > TAG_REACH*0.7){
       moving = p.move(dx,dz,dt,true);
     } else {
       p.setFacing(Math.atan2(-dx, -dz));
-      if (p.swingCooldown<=0) p.startSwing();
+      if (p.swingCooldown<=0){
+        if (Math.random() < cfg.missChance) p.swingCooldown = 0.35 + Math.random()*0.55;
+        else p.startSwing();
+      }
     }
   } else {
     p.wander += (Math.random()-0.5)*0.6*dt*10;
@@ -462,7 +525,7 @@ function checkTags(){
   for (const attacker of players){
     if (attacker.swingTimer <= 0) continue;
     for (const target of players){
-      if (target === attacker || !target.hasLeaf || target.protectedNow) continue;
+      if (target === attacker || !target.hasLeaf || target.protectedNow || !target.mesh.visible) continue;
       if (attacker.distTo(target) < TAG_REACH) target.eliminate();
     }
   }
@@ -601,6 +664,8 @@ function enterLobbyAsHost(){
   document.getElementById('lobby').style.display = 'flex';
   document.getElementById('btnStart').style.display = 'block';
   document.getElementById('btnCopyLobby').style.display = 'block';
+  document.getElementById('botSettings').style.display = 'block';
+  document.getElementById('botGuestLine').style.display = 'none';
   document.getElementById('roomCodeLabel').textContent = roomCode || 'LOCAL';
   document.getElementById('shareHint').textContent =
     (roomCode && roomCode !== 'LOCAL')
@@ -617,6 +682,8 @@ function enterLobbyAsGuest(){
   document.getElementById('lobby').style.display = 'flex';
   document.getElementById('btnStart').style.display = 'none';
   document.getElementById('btnCopyLobby').style.display = 'none';
+  document.getElementById('botSettings').style.display = 'none';
+  document.getElementById('botGuestLine').style.display = 'block';
   document.getElementById('roomCodeLabel').textContent = roomCode || '----';
   document.getElementById('shareHint').textContent = 'Waiting for the host to start… keep this tab open.';
   netSend({type:'join', id: localId});
@@ -624,20 +691,27 @@ function enterLobbyAsGuest(){
 }
 function renderLobbyList(){
   const ul = document.getElementById('lobbyList');
-  if (!isHost) return;
   const humans = [];
   slotOwner.forEach((id, i) => {
     if (id) humans.push({slot:i, id});
   });
-  ul.innerHTML = humans.map(h => {
-    const you = h.id === localId ? ' (you)' : '';
-    return '<li>Player ' + (h.slot+1) + you + '</li>';
-  }).join('') + '<li style="opacity:.7">Bots will fill the other ' + (NUM_PLAYERS - humans.length) + ' slots</li>';
-  netSend({
-    type:'lobby',
-    code: roomCode,
-    players: humans.map(h => ({slot:h.slot, youId: h.id}))
-  });
+  const bots = effectiveBots();
+  if (isHost){
+    ul.innerHTML = humans.map(h => {
+      const you = h.id === localId ? ' (you)' : '';
+      return '<li>Player ' + (h.slot+1) + you + '</li>';
+    }).join('') + (bots ? '<li style="opacity:.7">' + bots + ' bot' + (bots===1?'':'s') + ' · ' + botDifficulty + '</li>' : '<li style="opacity:.7">No bots</li>');
+    document.getElementById('botSettings').style.display = 'block';
+    document.getElementById('botGuestLine').style.display = 'none';
+    document.getElementById('botCountLabel').textContent = String(botCount);
+    netSend({
+      type:'lobby',
+      code: roomCode,
+      bots: bots,
+      difficulty: botDifficulty,
+      players: humans.map(h => ({slot:h.slot, youId: h.id}))
+    });
+  }
 }
 
 function hostMessageHandler(m){
@@ -672,11 +746,19 @@ function guestMessageHandler(m){
   } else if (m.type === 'lobby'){
     const ul = document.getElementById('lobbyList');
     const list = m.players || [];
+    if (typeof m.bots === 'number') botCount = m.bots;
+    if (m.difficulty) botDifficulty = m.difficulty;
     ul.innerHTML = list.map(h => {
       const you = (mySlot !== null && h.slot === mySlot) || h.youId === localId ? ' (you)' : '';
       return '<li>Player ' + (h.slot+1) + you + '</li>';
     }).join('');
+    const line = document.getElementById('botGuestLine');
+    document.getElementById('botSettings').style.display = 'none';
+    line.style.display = 'block';
+    line.textContent = (botCount ? (botCount + ' bot' + (botCount===1?'':'s')) : 'No bots') + ' · ' + botDifficulty;
   } else if (m.type === 'start'){
+    if (typeof m.bots === 'number') botCount = m.bots;
+    if (m.difficulty) botDifficulty = m.difficulty;
     beginMatchFromNet(m.round);
   } else if (m.type === 'host-alive' && phase === 'menu'){
     // ignore — used only while probing local tabs
@@ -694,11 +776,16 @@ function beginMatchFromNet(round){
 
 function startMatch(){
   if (!isHost) return;
+  readBotControls();
+  if (humanCount() + effectiveBots() < 2){
+    setLobbyErr('Need at least 2 fighters. Add a friend or a bot.');
+    return;
+  }
   resetGame();
   phase = 'playing';
   document.getElementById('lobby').style.display = 'none';
   showPlayingUI(true);
-  netSend({type:'start', round: roundId});
+  netSend({type:'start', round: roundId, bots: effectiveBots(), difficulty: botDifficulty});
 }
 
 function onPlayAgainClick(){
@@ -814,6 +901,23 @@ document.getElementById('btnCreate').addEventListener('click', onCreateRoom);
 document.getElementById('btnJoin').addEventListener('click', onJoinRoom);
 document.getElementById('btnLocal').addEventListener('click', () => startLocalTabs(false));
 document.getElementById('btnStart').addEventListener('click', startMatch);
+function readBotControls(){
+  const range = document.getElementById('botCount');
+  const diff = document.getElementById('botDiff');
+  botCount = Math.max(0, Math.min(7, parseInt(range.value, 10) || 0));
+  botDifficulty = diff.value || 'normal';
+  document.getElementById('botCountLabel').textContent = String(botCount);
+}
+document.getElementById('botCount').addEventListener('input', () => {
+  if (!isHost) return;
+  readBotControls();
+  renderLobbyList();
+});
+document.getElementById('botDiff').addEventListener('change', () => {
+  if (!isHost) return;
+  readBotControls();
+  renderLobbyList();
+});
 document.getElementById('joinCode').addEventListener('keydown', e => {
   if (e.key === 'Enter') onJoinRoom();
 });
@@ -851,12 +955,12 @@ function hostTick(dt){
       if (typeof facing === 'number') p.setFacing(facing);
       const moved = p.move(dx, dz, dt, false);
       p.animate(dt, moved);
-    } else {
+    } else if (botSlotSet().has(i) && p.mesh.visible){
       updateAI(p, dt);
     }
   });
   checkTags();
-  const remaining = players.filter(p=>p.hasLeaf).length;
+  const remaining = players.filter(p=>p.hasLeaf && p.mesh.visible).length;
   if (remaining <= 1){
     const winner = players.find(p=>p.hasLeaf);
     endGame(winner ? `🍌 Player ${winner.id+1} wins — last banna standing!` : 'Everyone lost their leaf at once!');
@@ -881,6 +985,12 @@ function clientRenderTick(dt){
       p.mesh.rotation.y += dr * Math.min(1, dt*10);
       p.facing = p.mesh.rotation.y;
     }
+    if (sp.active === false){
+      p.mesh.visible = false;
+      p.hasLeaf = false;
+      return;
+    }
+    p.mesh.visible = true;
     if (p.hasLeaf && !sp.hasLeaf) p.eliminate();
     p.hasLeaf = sp.hasLeaf;
     p.swingTimer = sp.swingTimer;
@@ -897,11 +1007,11 @@ setInterval(() => {
   if (isHost){
     netSend({
       type: 'state', round: roundId, t: Math.max(0,timeLeft),
-      remaining: players.filter(p=>p.hasLeaf).length,
+      remaining: players.filter(p=>p.hasLeaf && p.mesh.visible).length,
       gameOver, bannerText: gameOver ? document.getElementById('bannerText').textContent : '',
       players: players.map(p => ({
         x:p.mesh.position.x, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
-        hasLeaf:p.hasLeaf, swingTimer:p.swingTimer
+        hasLeaf:p.hasLeaf, swingTimer:p.swingTimer, active: p.mesh.visible
       }))
     });
   } else if (mySlot !== null){
