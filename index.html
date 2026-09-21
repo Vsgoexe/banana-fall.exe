@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>banna fall</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b120a;color:#eee;font-family:system-ui,sans-serif;overflow:hidden;}
+  #hud{position:fixed;top:10px;left:50%;transform:translateX(-50%);display:none;gap:20px;
+    padding:8px 16px;font-size:14px;background:#00000066;border-radius:8px;z-index:5;white-space:nowrap;}
+  #tip{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-size:12px;
+    opacity:.8;text-align:center;max-width:720px;z-index:5;display:none;}
+  #banner{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);
+    background:#000000cc;padding:20px 32px;border-radius:12px;font-size:24px;
+    display:none;text-align:center;z-index:6;}
+  #banner button{display:block;margin:12px auto 0;padding:6px 16px;font-size:14px;cursor:pointer;}
+  canvas{display:block;}
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#0b120acc;z-index:8;padding:24px;}
+  .panel{background:#12210fcc;border:1px solid #3d5a2a;border-radius:16px;padding:28px 32px;
+    text-align:center;min-width:320px;max-width:440px;box-shadow:0 12px 40px #0008;}
+  .panel h1{margin:0 0 6px;font-size:42px;letter-spacing:2px;color:#ffe066;}
+  .panel h2{margin:0 0 8px;color:#ffe066;}
+  .panel .sub{opacity:.85;margin:0 0 20px;font-size:14px;}
+  .panel button{display:block;width:100%;margin:8px 0;padding:10px 16px;font-size:16px;
+    cursor:pointer;border:0;border-radius:8px;background:#ffe066;color:#1a1400;font-weight:700;}
+  .panel button.secondary{background:#2c4a26;color:#eee;font-weight:600;}
+  .panel button:disabled{opacity:.45;cursor:default;}
+  .join-row{display:flex;gap:8px;margin:8px 0;}
+  .join-row input{flex:1;padding:10px;font-size:18px;letter-spacing:4px;text-align:center;
+    text-transform:uppercase;border-radius:8px;border:1px solid #3d5a2a;background:#0b120a;color:#ffe066;}
+  #lobbyList{list-style:none;padding:0;margin:12px 0;text-align:left;}
+  #lobbyList li{padding:6px 10px;margin:4px 0;background:#00000055;border-radius:6px;}
+  .room-code{font-size:28px;letter-spacing:8px;color:#ffe066;font-weight:700;}
+  .err{color:#ff8a7a;min-height:1.2em;font-size:13px;}
+  .share{font-size:13px;opacity:.9;word-break:break-all;}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span>🍌 Players left: <b id="pCount">8</b>/8</span>
+  <span>You are: <b id="youLabel">Connecting…</b></span>
+  <span>⏱ <b id="timer">90</b>s</span>
+</div>
+<div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Right-click + drag: look / turn
+  &nbsp;|&nbsp; Space / Left-click: swing stick &nbsp;|&nbsp; Tag someone and the banna drops!</div>
+<div id="banner">
+  <div id="bannerText"></div>
+  <button onclick="onPlayAgainClick()">Play Again</button>
+</div>
+
+<div id="menu" class="overlay">
+  <div class="panel">
+    <h1>BANNA FALL</h1>
+    <p class="sub">Play with friends on the internet. Create a room, send them this page and your code.</p>
+    <button id="btnCreate" type="button">Create Room</button>
+    <div class="join-row">
+      <input id="joinCode" maxlength="4" placeholder="CODE" autocomplete="off">
+      <button id="btnJoin" type="button" style="width:auto;margin:0;">Join</button>
+    </div>
+    <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
+    <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
+    <p class="err" id="menuErr"></p>
+    <p class="share" id="menuHint">Everyone opens this same page. You Create Room. They type the 4-letter code and Join.</p>
+  </div>
+</div>
+
+<div id="lobby" class="overlay" style="display:none">
+  <div class="panel">
+    <h2>Room</h2>
+    <div class="room-code" id="roomCodeLabel">----</div>
+    <p class="share" id="shareHint"></p>
+    <ul id="lobbyList"></ul>
+    <button id="btnStart" type="button">Start Game</button>
+    <button id="btnCopyLobby" class="secondary" type="button">Copy invite</button>
+    <p class="sub">Keep this tab open. Empty slots fill with bots.</p>
+    <p class="err" id="lobbyErr"></p>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="peerjs.min.js"></script>
+<script>
+// ================= Scene setup =================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1a0c);
+scene.fog = new THREE.Fog(0x0b1a0c, 15, 70);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+scene.add(new THREE.AmbientLight(0x445544, 0.9));
+const moon = new THREE.DirectionalLight(0x9fb4ff, 0.5);
+moon.position.set(30, 40, 10);
+scene.add(moon);
+const fireLight = new THREE.PointLight(0xff8a3d, 2.2, 30, 2);
+fireLight.position.set(0, 2.5, 0);
+scene.add(fireLight);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.MeshStandardMaterial({color:0x2c4a26})
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+const fireGroup = new THREE.Group();
+const logMat = new THREE.MeshStandardMaterial({color:0x4a2e1a});
+for (let i=0;i<4;i++){
+  const log = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,2,6), logMat);
+  log.rotation.z = Math.PI/2;
+  log.rotation.y = i * Math.PI/4;
+  fireGroup.add(log);
+}
+const flame = new THREE.Mesh(
+  new THREE.ConeGeometry(0.6, 1.6, 8),
+  new THREE.MeshStandardMaterial({color:0xff7a30, emissive:0xff4500, emissiveIntensity:1})
+);
+flame.position.y = 1.1;
+fireGroup.add(flame);
+scene.add(fireGroup);
+
+function makeTree(x,z){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.4,2,6), new THREE.MeshStandardMaterial({color:0x4a3520}));
+  trunk.position.y = 1;
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.6,3.2,7), new THREE.MeshStandardMaterial({color:0x2f6b2f}));
+  leaves.position.y = 3;
+  g.add(trunk, leaves);
+  g.position.set(x,0,z);
+  scene.add(g);
+}
+for (let i=0;i<14;i++){
+  const a = (i/14)*Math.PI*2;
+  const r = 28 + Math.random()*8;
+  makeTree(Math.cos(a)*r, Math.sin(a)*r);
+}
+
+// ================= Character builder =================
+const PALETTE = [0xd94f4f,0x4f8fd9,0xd9c14f,0x7fd94f,0xb14fd9,0xd97f4f,0x4fd9c1,0xffffff];
+
+function makeLeafSkirt(){
+  const leafMat = new THREE.MeshStandardMaterial({color:0x5fd15f, side:THREE.DoubleSide});
+  const skirt = new THREE.Group();
+  const bladeCount = 10;
+  for (let i=0;i<bladeCount;i++){
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.16,0.5,4), leafMat);
+    const a = (i/bladeCount)*Math.PI*2;
+    blade.position.set(Math.sin(a)*0.42, 0.55, Math.cos(a)*0.42);
+    blade.rotation.x = Math.PI;
+    blade.rotation.y = a;
+    skirt.add(blade);
+  }
+  return skirt;
+}
+
+function makeBanana(){
+  const g = new THREE.Group();
+  const yellow = new THREE.MeshStandardMaterial({color:0xffd24a, roughness:0.45});
+  const brown = new THREE.MeshStandardMaterial({color:0x5a3a1a});
+  for (let i=0;i<5;i++){
+    const t = i/4;
+    const rad = 0.09 - t*0.02;
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rad*0.85, rad, 0.22, 7), yellow);
+    const ang = -0.85 + t*1.7;
+    seg.position.set(0, 0.12 + t*0.42, Math.sin(ang)*0.16);
+    seg.rotation.x = ang;
+    g.add(seg);
+  }
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.14, 5), brown);
+  stem.position.set(0, 1.02, 0.04);
+  stem.rotation.x = -0.4;
+  g.add(stem);
+  g.scale.setScalar(1.15);
+  return g;
+}
+
+function makeCharacter(colorHex){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({color:colorHex});
+  const headMat = new THREE.MeshStandardMaterial({color:0xe0b088});
+
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.8,1.0,0.45), bodyMat);
+  torso.position.y = 1.15;
+  g.add(torso);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.55,0.55), headMat);
+  head.position.y = 1.95;
+  g.add(head);
+
+  const armGeo = new THREE.BoxGeometry(0.24,0.8,0.24);
+  const leftArm = new THREE.Mesh(armGeo, bodyMat);
+  leftArm.position.set(0.52, 1.2, 0);
+  leftArm.geometry.translate(0,-0.4,0);
+  const rightArm = new THREE.Mesh(armGeo, bodyMat);
+  rightArm.position.set(-0.52, 1.2, 0);
+  rightArm.geometry.translate(0,-0.4,0);
+  g.add(leftArm, rightArm);
+
+  const legGeo = new THREE.BoxGeometry(0.28,0.9,0.28);
+  const leftLeg = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({color:0x2b2b2b}));
+  leftLeg.position.set(0.2, 0.65, 0);
+  leftLeg.geometry.translate(0,-0.45,0);
+  const rightLeg = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({color:0x2b2b2b}));
+  rightLeg.position.set(-0.2, 0.65, 0);
+  rightLeg.geometry.translate(0,-0.45,0);
+  g.add(leftLeg, rightLeg);
+
+  const shorts = new THREE.Mesh(
+    new THREE.BoxGeometry(0.86,0.5,0.5),
+    new THREE.MeshStandardMaterial({color:0x3a5a7a})
+  );
+  shorts.position.y = 0.72;
+  g.add(shorts);
+
+  g.userData.parts = {torso, head, leftArm, rightArm, leftLeg, rightLeg};
+
+  const skirt = makeLeafSkirt();
+  g.add(skirt);
+  g.userData.leaf = skirt;
+
+  const stick = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05,0.05,1.4,6),
+    new THREE.MeshStandardMaterial({color:0x8a6a3d})
+  );
+  stick.position.set(0,-0.5,0.1);
+  stick.rotation.z = Math.PI/2.2;
+  rightArm.add(stick);
+  g.userData.stick = stick;
+  g.userData.stickArm = rightArm;
+
+  return g;
+}
+
+// ================= Entities =================
+const SAFE_RADIUS = 3.4;
+const SAFE_CAPACITY = 2;
+const TAG_REACH = 2.6;
+const ARENA_R = 24;
+const NUM_PLAYERS = 8;
+
+class Player {
+  constructor(i){
+    const a = (i/NUM_PLAYERS)*Math.PI*2;
+    const r = 14;
+    this.mesh = makeCharacter(PALETTE[i % PALETTE.length]);
+    this.mesh.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+    this.mesh.rotation.y = a;
+    scene.add(this.mesh);
+    this.id = i;
+    this.hasLeaf = true;
+    this.speed = 4.9;
+    this.facing = a;
+    this.wander = Math.random()*Math.PI*2;
+    this.swingTimer = 0;
+    this.swingCooldown = 0;
+    this.walkT = Math.random()*10;
+    this.protectedNow = false;
+  }
+  distTo(o){ return Math.hypot(this.mesh.position.x-o.mesh.position.x, this.mesh.position.z-o.mesh.position.z); }
+  distToCenter(){ return Math.hypot(this.mesh.position.x, this.mesh.position.z); }
+  inSafeZone(){ return this.distToCenter() < SAFE_RADIUS; }
+  setFacing(yaw){
+    this.facing = yaw;
+    this.mesh.rotation.y = yaw;
+  }
+  move(dx, dz, dt, faceMove=false){
+    if (dx===0 && dz===0) return false;
+    const len = Math.hypot(dx,dz);
+    dx/=len; dz/=len;
+    let nx = this.mesh.position.x + dx*this.speed*dt;
+    let nz = this.mesh.position.z + dz*this.speed*dt;
+    const r = Math.hypot(nx,nz);
+    if (r > ARENA_R){ nx *= ARENA_R/r; nz *= ARENA_R/r; }
+    this.mesh.position.x = nx; this.mesh.position.z = nz;
+    if (faceMove) this.setFacing(Math.atan2(-dx, -dz));
+    return true;
+  }
+  animate(dt, moving){
+    const p = this.mesh.userData.parts;
+    if (!this.hasLeaf) return;
+    if (moving){
+      this.walkT += dt*8;
+      const s = Math.sin(this.walkT)*0.5;
+      p.leftLeg.rotation.x = s; p.rightLeg.rotation.x = -s;
+      if (this.swingTimer<=0){ p.leftArm.rotation.x = -s; p.rightArm.rotation.x = s; }
+    } else {
+      p.leftLeg.rotation.x *= 0.8; p.rightLeg.rotation.x *= 0.8;
+      if (this.swingTimer<=0){ p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8; }
+    }
+    if (this.swingTimer > 0){
+      this.swingTimer -= dt;
+      const t = 1 - Math.max(0,this.swingTimer)/0.35;
+      this.mesh.userData.stickArm.rotation.x = -1.2 + Math.sin(t*Math.PI)*1.8;
+    }
+    if (this.swingCooldown > 0) this.swingCooldown -= dt;
+  }
+  startSwing(){
+    if (!this.hasLeaf || this.swingCooldown > 0) return;
+    this.swingTimer = 0.35;
+    this.swingCooldown = 0.6;
+  }
+  eliminate(){
+    if (!this.hasLeaf) return;
+    this.hasLeaf = false;
+    dropLeaf(this);
+    dropBanana(this);
+    const p = this.mesh.userData.parts;
+    p.leftArm.rotation.set(0, 0, 1.0);
+    p.rightArm.rotation.set(0, 0, -1.0);
+  }
+}
+
+// ================= Leaf + banana drop physics =================
+let fallingLeaves = [];
+let audioCtx = null;
+function playBananaPop(){
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(520, t);
+    o.frequency.exponentialRampToValueAtTime(120, t + 0.2);
+    g.gain.setValueAtTime(0.14, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t); o.stop(t + 0.24);
+  } catch (err) {}
+}
+function dropLeaf(player){
+  const skirt = player.mesh.userData.leaf;
+  if (!skirt || skirt.parent !== player.mesh) return;
+  const worldPos = new THREE.Vector3();
+  skirt.getWorldPosition(worldPos);
+  player.mesh.remove(skirt);
+  skirt.position.copy(worldPos);
+  scene.add(skirt);
+  fallingLeaves.push({
+    obj: skirt, vy: 2.0, vx: 0, vz: 0,
+    spinY: (Math.random()-0.5)*6, spinX: (Math.random()-0.5)*4,
+    bounce: false, landed: false
+  });
+}
+function dropBanana(player){
+  const banana = makeBanana();
+  banana.position.set(player.mesh.position.x, 1.5, player.mesh.position.z);
+  banana.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(banana);
+  fallingLeaves.push({
+    obj: banana,
+    vy: 5.2,
+    vx: (Math.random()-0.5)*4.2,
+    vz: (Math.random()-0.5)*4.2,
+    spinY: (Math.random()-0.5)*12,
+    spinX: (Math.random()-0.5)*10,
+    bounce: true,
+    landed: false
+  });
+  playBananaPop();
+}
+function updateFallingLeaves(dt){
+  for (const f of fallingLeaves){
+    if (f.landed) continue;
+    f.vy -= 14*dt;
+    f.obj.position.x += (f.vx || 0)*dt;
+    f.obj.position.y += f.vy*dt;
+    f.obj.position.z += (f.vz || 0)*dt;
+    f.obj.rotation.y += f.spinY*dt;
+    f.obj.rotation.x += f.spinX*dt;
+    if (f.obj.position.y <= 0.08){
+      f.obj.position.y = 0.08;
+      if (f.bounce && f.vy < -2){
+        f.vy *= -0.38;
+        f.vx = (f.vx || 0) * 0.55;
+        f.vz = (f.vz || 0) * 0.55;
+      } else {
+        f.landed = true;
+        f.vy = 0; f.vx = 0; f.vz = 0;
+      }
+    }
+  }
+}
+
+// ================= Global game state =================
+let players = null;
+let timeLeft = 90, gameOver = false, roundId = 0;
+let phase = 'menu'; // menu | lobby | playing
+const clock = new THREE.Clock();
+
+function rebuildPlayers(){
+  if (players) players.forEach(p => scene.remove(p.mesh));
+  fallingLeaves.forEach(f => scene.remove(f.obj));
+  fallingLeaves = [];
+  players = Array.from({length: NUM_PLAYERS}, (_,i) => new Player(i));
+}
+function resetGame(){
+  rebuildPlayers();
+  timeLeft = 90;
+  gameOver = false;
+  roundId++;
+  document.getElementById('banner').style.display = 'none';
+}
+function endGame(text){
+  gameOver = true;
+  document.getElementById('bannerText').textContent = text;
+  document.getElementById('banner').style.display = 'block';
+}
+function renderHud(remaining, timeVal){
+  document.getElementById('pCount').textContent = remaining;
+  document.getElementById('timer').textContent = Math.ceil(Math.max(0,timeVal));
+  document.getElementById('youLabel').textContent =
+    mySlot === null ? 'Connecting…' : ('Player ' + (mySlot+1) + (isHost ? ' • Host' : ' • Guest'));
+}
+function showPlayingUI(on){
+  document.getElementById('hud').style.display = on ? 'flex' : 'none';
+  document.getElementById('tip').style.display = on ? 'block' : 'none';
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('lobby').style.display = on ? 'none' : document.getElementById('lobby').style.display;
+}
+
+// ================= Free-for-all AI =================
+function updateAI(p, dt){
+  if (!p.hasLeaf) return;
+  let target = null, nd = Infinity;
+  for (const o of players){
+    if (o === p || !o.hasLeaf || o.protectedNow) continue;
+    const d = p.distTo(o);
+    if (d < nd){ nd = d; target = o; }
+  }
+  let dx=0, dz=0, moving=false;
+  if (target){
+    dx = target.mesh.position.x - p.mesh.position.x;
+    dz = target.mesh.position.z - p.mesh.position.z;
+    if (nd > TAG_REACH*0.7){
+      moving = p.move(dx,dz,dt,true);
+    } else {
+      p.setFacing(Math.atan2(-dx, -dz));
+      if (p.swingCooldown<=0) p.startSwing();
+    }
+  } else {
+    p.wander += (Math.random()-0.5)*0.6*dt*10;
+    moving = p.move(Math.sin(p.wander), Math.cos(p.wander), dt, true);
+  }
+  p.animate(dt, moving);
+}
+function computeProtection(){
+  const inside = players.filter(p => p.hasLeaf && p.inSafeZone());
+  inside.sort((a,b) => a.distToCenter() - b.distToCenter());
+  players.forEach(p => p.protectedNow = false);
+  inside.slice(0, SAFE_CAPACITY).forEach(p => p.protectedNow = true);
+}
+function checkTags(){
+  for (const attacker of players){
+    if (attacker.swingTimer <= 0) continue;
+    for (const target of players){
+      if (target === attacker || !target.hasLeaf || target.protectedNow) continue;
+      if (attacker.distTo(target) < TAG_REACH) target.eliminate();
+    }
+  }
+}
+
+// ================= Camera-relative input (W = look direction) =================
+const keys = {};
+let camAngle = 0;
+let orbiting = false, lastMouseX = 0;
+
+function lookFacing(){
+  // Three.js mesh forward is local -Z, which matches camera look at this yaw.
+  return camAngle;
+}
+function getCameraBasis(angle){
+  // W walks the way you look (into the screen, away from the camera).
+  const forward = new THREE.Vector3(-Math.sin(angle), 0, -Math.cos(angle));
+  const right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+  return {forward, right};
+}
+function computeLocalMoveVector(){
+  let fwd = 0, right = 0;
+  if (keys['w']||keys['arrowup']) fwd += 1;
+  if (keys['s']||keys['arrowdown']) fwd -= 1;
+  if (keys['d']||keys['arrowright']) right += 1;
+  if (keys['a']||keys['arrowleft']) right -= 1;
+  if (fwd===0 && right===0) return {dx:0, dz:0};
+  const basis = getCameraBasis(camAngle);
+  let dx = basis.forward.x*fwd + basis.right.x*right;
+  let dz = basis.forward.z*fwd + basis.right.z*right;
+  const len = Math.hypot(dx,dz) || 1;
+  return {dx: dx/len, dz: dz/len};
+}
+const camPos = new THREE.Vector3(0,8,18);
+const camTarget = new THREE.Vector3();
+function updateCamera(p, dt){
+  const back = new THREE.Vector3(Math.sin(camAngle), 0, Math.cos(camAngle)).multiplyScalar(6);
+  const desired = new THREE.Vector3(p.mesh.position.x + back.x, 4.2, p.mesh.position.z + back.z);
+  camPos.lerp(desired, Math.min(1, dt*6));
+  camera.position.copy(camPos);
+  camTarget.lerp(new THREE.Vector3(p.mesh.position.x, 1.4, p.mesh.position.z), Math.min(1, dt*8));
+  camera.lookAt(camTarget);
+}
+function updateMenuCamera(){
+  const t = performance.now() * 0.00012;
+  camera.position.set(Math.sin(t)*16, 9, Math.cos(t)*16);
+  camera.lookAt(0, 1.2, 0);
+}
+
+// ================= Multiplayer (internet via PeerJS, tabs via BroadcastChannel) =================
+const PEER_PREFIX = 'bannafall-';
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const bc = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('banna-fall-net') : null;
+const localId = 'p_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+let isHost = false;
+let mySlot = null;
+const slotOwner = new Array(NUM_PLAYERS).fill(null);
+const lastInput = {};
+let lastSnapshot = null;
+let clientRoundId = -1;
+let hostInputDX = 0, hostInputDZ = 0, hostInputFacing = 0;
+let netMode = 'none'; // peer | bc
+let roomCode = null;
+let bcHooked = false;
+let peer = null;
+let peerConns = [];
+let hostConn = null;
+let createTries = 0;
+
+function pageUrl(){
+  return location.href.split('#')[0];
+}
+function inviteText(){
+  return 'Play banna fall: ' + pageUrl() + '  Room code: ' + (roomCode || '');
+}
+function randomCode(){
+  let c = '';
+  for (let i=0;i<4;i++) c += CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)];
+  return c;
+}
+function netSend(msg){
+  if (netMode === 'peer'){
+    if (isHost){
+      peerConns.forEach(c => { if (c && c.open) try { c.send(msg); } catch (err) {} });
+    } else if (hostConn && hostConn.open){
+      try { hostConn.send(msg); } catch (err) {}
+    }
+  } else if (netMode === 'bc' && bc){
+    bc.postMessage(msg);
+  }
+}
+
+function setMenuErr(text){ document.getElementById('menuErr').textContent = text || ''; }
+function setLobbyErr(text){ document.getElementById('lobbyErr').textContent = text || ''; }
+
+function destroyPeer(){
+  peerConns.forEach(c => { try { c.close(); } catch (err) {} });
+  peerConns = [];
+  if (hostConn){ try { hostConn.close(); } catch (err) {} hostConn = null; }
+  if (peer){ try { peer.destroy(); } catch (err) {} peer = null; }
+}
+
+function attachHostConn(conn){
+  conn.on('data', m => {
+    if (m && m.id) conn.clientId = m.id;
+    onNetMessage(m);
+  });
+  conn.on('close', () => {
+    peerConns = peerConns.filter(c => c !== conn);
+    if (conn.clientId){
+      const i = slotOwner.indexOf(conn.clientId);
+      if (i > 0){ slotOwner[i] = null; renderLobbyList(); }
+    }
+  });
+  conn.on('error', () => {});
+  peerConns.push(conn);
+}
+
+function onNetMessage(m){
+  if (!m || !m.type) return;
+  if (isHost) hostMessageHandler(m);
+  else guestMessageHandler(m);
+}
+
+function enterLobbyAsHost(){
+  isHost = true;
+  mySlot = 0;
+  slotOwner.fill(null);
+  slotOwner[0] = localId;
+  phase = 'lobby';
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('lobby').style.display = 'flex';
+  document.getElementById('btnStart').style.display = 'block';
+  document.getElementById('btnCopyLobby').style.display = 'block';
+  document.getElementById('roomCodeLabel').textContent = roomCode || 'LOCAL';
+  document.getElementById('shareHint').textContent =
+    (roomCode && roomCode !== 'LOCAL')
+      ? ('Send friends this page: ' + pageUrl() + ' — they type code ' + roomCode)
+      : 'Open this same page in another tab, then click “Same computer (tabs)”.';
+  renderLobbyList();
+  setMenuErr('');
+}
+function enterLobbyAsGuest(){
+  isHost = false;
+  mySlot = null;
+  phase = 'lobby';
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('lobby').style.display = 'flex';
+  document.getElementById('btnStart').style.display = 'none';
+  document.getElementById('btnCopyLobby').style.display = 'none';
+  document.getElementById('roomCodeLabel').textContent = roomCode || '----';
+  document.getElementById('shareHint').textContent = 'Waiting for the host to start… keep this tab open.';
+  netSend({type:'join', id: localId});
+  setMenuErr('');
+}
+function renderLobbyList(){
+  const ul = document.getElementById('lobbyList');
+  if (!isHost) return;
+  const humans = [];
+  slotOwner.forEach((id, i) => {
+    if (id) humans.push({slot:i, id});
+  });
+  ul.innerHTML = humans.map(h => {
+    const you = h.id === localId ? ' (you)' : '';
+    return '<li>Player ' + (h.slot+1) + you + '</li>';
+  }).join('') + '<li style="opacity:.7">Bots will fill the other ' + (NUM_PLAYERS - humans.length) + ' slots</li>';
+  netSend({
+    type:'lobby',
+    code: roomCode,
+    players: humans.map(h => ({slot:h.slot, youId: h.id}))
+  });
+}
+
+function hostMessageHandler(m){
+  if (m.type === 'ping'){
+    netSend({type:'host-alive', id: localId, code: roomCode});
+  } else if (m.type === 'join' && m.id && m.id !== localId){
+    let slot = slotOwner.findIndex(s => s === m.id);
+    if (slot === -1) slot = slotOwner.findIndex(s => s === null);
+    if (slot === -1){
+      netSend({type:'welcome', id: m.id, slot: null});
+    } else {
+      slotOwner[slot] = m.id;
+      netSend({type:'welcome', id: m.id, slot, code: roomCode});
+      renderLobbyList();
+    }
+  } else if (m.type === 'input'){
+    if (slotOwner.includes(m.id)) lastInput[m.id] = {dx:m.dx, dz:m.dz, facing:m.facing, ts: performance.now()};
+  } else if (m.type === 'swing'){
+    const slot = slotOwner.indexOf(m.id);
+    if (slot !== -1 && players && players[slot]) players[slot].startSwing();
+  } else if (m.type === 'restart'){
+    if (phase === 'playing') resetGame();
+  }
+}
+function guestMessageHandler(m){
+  if (m.type === 'welcome' && m.id === localId){
+    mySlot = m.slot;
+    if (m.code) roomCode = m.code;
+    if (mySlot === null) setLobbyErr('Room is full.');
+  } else if (m.type === 'state'){
+    lastSnapshot = m;
+  } else if (m.type === 'lobby'){
+    const ul = document.getElementById('lobbyList');
+    const list = m.players || [];
+    ul.innerHTML = list.map(h => {
+      const you = (mySlot !== null && h.slot === mySlot) || h.youId === localId ? ' (you)' : '';
+      return '<li>Player ' + (h.slot+1) + you + '</li>';
+    }).join('');
+  } else if (m.type === 'start'){
+    beginMatchFromNet(m.round);
+  } else if (m.type === 'host-alive' && phase === 'menu'){
+    // ignore — used only while probing local tabs
+  }
+}
+
+function beginMatchFromNet(round){
+  resetGame();
+  if (typeof round === 'number') roundId = round;
+  clientRoundId = roundId;
+  phase = 'playing';
+  document.getElementById('lobby').style.display = 'none';
+  showPlayingUI(true);
+}
+
+function startMatch(){
+  if (!isHost) return;
+  resetGame();
+  phase = 'playing';
+  document.getElementById('lobby').style.display = 'none';
+  showPlayingUI(true);
+  netSend({type:'start', round: roundId});
+}
+
+function onPlayAgainClick(){
+  if (phase !== 'playing') return;
+  if (isHost) resetGame();
+  else netSend({type:'restart', id: localId});
+}
+
+async function onCreateRoom(){
+  setMenuErr('Creating room…');
+  if (typeof Peer === 'undefined'){
+    setMenuErr('Could not load online play. Refresh and try again.');
+    return;
+  }
+  createTries = 0;
+  startOnlineHost();
+}
+function startOnlineHost(){
+  destroyPeer();
+  const code = randomCode();
+  createTries++;
+  peer = new Peer(PEER_PREFIX + code, { debug: 0 });
+  peer.on('open', () => {
+    netMode = 'peer';
+    roomCode = code;
+    enterLobbyAsHost();
+  });
+  peer.on('connection', attachHostConn);
+  peer.on('error', err => {
+    if (err && err.type === 'unavailable-id' && createTries < 8){
+      startOnlineHost();
+      return;
+    }
+    setMenuErr('Could not create a room. Check your internet and try again.');
+  });
+  peer.on('disconnected', () => {
+    try { peer.reconnect(); } catch (err) {}
+  });
+}
+function onJoinRoom(){
+  setMenuErr('');
+  const code = (document.getElementById('joinCode').value || '').trim().toUpperCase();
+  if (!code || code.length < 4){ setMenuErr('Enter a 4-letter room code.'); return; }
+  if (code === 'LOCAL'){ startLocalTabs(true); return; }
+  if (typeof Peer === 'undefined'){
+    setMenuErr('Could not load online play. Refresh and try again.');
+    return;
+  }
+  setMenuErr('Joining…');
+  destroyPeer();
+  peer = new Peer({ debug: 0 });
+  const timer = setTimeout(() => {
+    setMenuErr('No room with that code. The host must keep their page open.');
+  }, 9000);
+  peer.on('open', () => {
+    hostConn = peer.connect(PEER_PREFIX + code, { reliable: true });
+    hostConn.on('data', m => onNetMessage(m));
+    hostConn.on('close', () => {
+      if (phase !== 'menu') setLobbyErr('Host left. Ask them to create a new room.');
+    });
+    hostConn.on('open', () => {
+      clearTimeout(timer);
+      netMode = 'peer';
+      roomCode = code;
+      enterLobbyAsGuest();
+    });
+    hostConn.on('error', () => {
+      clearTimeout(timer);
+      setMenuErr('Could not join that room.');
+    });
+  });
+  peer.on('error', err => {
+    clearTimeout(timer);
+    if (err && err.type === 'peer-unavailable'){
+      setMenuErr('No room with that code. Check it, and make sure the host is still in the lobby.');
+    } else {
+      setMenuErr('Could not join. Check the code and your internet.');
+    }
+  });
+}
+function startLocalTabs(forceGuest){
+  if (!bc){ setMenuErr('This browser cannot do local-tab play.'); return; }
+  netMode = 'bc';
+  if (!bcHooked){
+    bc.addEventListener('message', (e) => onNetMessage(e.data));
+    bcHooked = true;
+  }
+  let sawHost = false;
+  const probe = (e) => { if (e.data && e.data.type === 'host-alive') sawHost = true; };
+  bc.addEventListener('message', probe);
+  bc.postMessage({type:'ping', id: localId});
+  setTimeout(() => {
+    bc.removeEventListener('message', probe);
+    if (forceGuest && !sawHost){
+      setMenuErr('No local host yet — open another tab and Create / Same computer first.');
+      netMode = 'none';
+      return;
+    }
+    if (sawHost){
+      roomCode = 'LOCAL';
+      enterLobbyAsGuest();
+    } else {
+      roomCode = 'LOCAL';
+      enterLobbyAsHost();
+      setInterval(() => {
+        if (isHost && netMode === 'bc') netSend({type:'host-alive', id: localId, code: roomCode});
+      }, 1000);
+    }
+  }, 350);
+}
+
+document.getElementById('btnCreate').addEventListener('click', onCreateRoom);
+document.getElementById('btnJoin').addEventListener('click', onJoinRoom);
+document.getElementById('btnLocal').addEventListener('click', () => startLocalTabs(false));
+document.getElementById('btnStart').addEventListener('click', startMatch);
+document.getElementById('joinCode').addEventListener('keydown', e => {
+  if (e.key === 'Enter') onJoinRoom();
+});
+function copyInvite(){
+  const text = inviteText();
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(() => {
+      setLobbyErr('Invite copied. Send it to your friends.');
+      setMenuErr('Invite copied. Send it to your friends.');
+    }).catch(() => prompt('Copy this invite:', text));
+  } else {
+    prompt('Copy this invite:', text);
+  }
+}
+document.getElementById('btnCopyLobby').addEventListener('click', copyInvite);
+document.getElementById('btnCopyInvite').addEventListener('click', copyInvite);
+
+function hostTick(dt){
+  timeLeft -= dt;
+  computeProtection();
+  const now = performance.now();
+  players.forEach((p,i) => {
+    const ownerId = slotOwner[i];
+    let dx=0, dz=0, facing=null;
+    if (ownerId === localId){
+      dx = hostInputDX; dz = hostInputDZ; facing = hostInputFacing;
+    } else if (ownerId){
+      const inp = lastInput[ownerId];
+      if (inp && (now - inp.ts) < 3000){
+        dx = inp.dx; dz = inp.dz;
+        if (typeof inp.facing === 'number') facing = inp.facing;
+      }
+    }
+    if (ownerId){
+      if (typeof facing === 'number') p.setFacing(facing);
+      const moved = p.move(dx, dz, dt, false);
+      p.animate(dt, moved);
+    } else {
+      updateAI(p, dt);
+    }
+  });
+  checkTags();
+  const remaining = players.filter(p=>p.hasLeaf).length;
+  if (remaining <= 1){
+    const winner = players.find(p=>p.hasLeaf);
+    endGame(winner ? `🍌 Player ${winner.id+1} wins — last banna standing!` : 'Everyone lost their leaf at once!');
+  } else if (timeLeft <= 0){
+    endGame(`⏱ Time's up! ${remaining} players still have their leaf!`);
+  }
+  renderHud(remaining, timeLeft);
+}
+function clientRenderTick(dt){
+  if (!lastSnapshot){ renderHud(NUM_PLAYERS, timeLeft); return; }
+  const snap = lastSnapshot;
+  if (snap.round !== clientRoundId){ clientRoundId = snap.round; rebuildPlayers(); }
+  snap.players.forEach((sp,i) => {
+    const p = players[i];
+    const dxp = sp.x - p.mesh.position.x, dzp = sp.z - p.mesh.position.z;
+    const moved = Math.hypot(dxp,dzp) > 0.01;
+    p.mesh.position.x += dxp * Math.min(1, dt*10);
+    p.mesh.position.z += dzp * Math.min(1, dt*10);
+    if (i !== mySlot){
+      let dr = sp.rotY - p.mesh.rotation.y;
+      dr = Math.atan2(Math.sin(dr), Math.cos(dr));
+      p.mesh.rotation.y += dr * Math.min(1, dt*10);
+      p.facing = p.mesh.rotation.y;
+    }
+    if (p.hasLeaf && !sp.hasLeaf) p.eliminate();
+    p.hasLeaf = sp.hasLeaf;
+    p.swingTimer = sp.swingTimer;
+    p.animate(dt, moved);
+  });
+  if (snap.gameOver && !gameOver) endGame(snap.bannerText);
+  gameOver = snap.gameOver;
+  renderHud(snap.remaining, snap.t);
+}
+
+setInterval(() => {
+  if (phase === 'lobby' && isHost) renderLobbyList();
+  if (phase !== 'playing') return;
+  if (isHost){
+    netSend({
+      type: 'state', round: roundId, t: Math.max(0,timeLeft),
+      remaining: players.filter(p=>p.hasLeaf).length,
+      gameOver, bannerText: gameOver ? document.getElementById('bannerText').textContent : '',
+      players: players.map(p => ({
+        x:p.mesh.position.x, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
+        hasLeaf:p.hasLeaf, swingTimer:p.swingTimer
+      }))
+    });
+  } else if (mySlot !== null){
+    const mv = computeLocalMoveVector();
+    netSend({type:'input', id: localId, dx: mv.dx, dz: mv.dz, facing: lookFacing()});
+  }
+}, 50);
+
+function triggerSwing(){
+  if (phase !== 'playing' || gameOver || mySlot === null) return;
+  if (isHost) players[mySlot].startSwing();
+  else netSend({type:'swing', id: localId});
+}
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (k === ' ' && phase === 'playing'){ e.preventDefault(); triggerSwing(); }
+});
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+renderer.domElement.addEventListener('click', e => {
+  if (e.button === 0 && phase === 'playing') triggerSwing();
+});
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+renderer.domElement.addEventListener('mousedown', e => {
+  if (e.button !== 2 || phase === 'menu') return;
+  orbiting = true;
+  lastMouseX = e.clientX;
+  if (renderer.domElement.requestPointerLock){
+    renderer.domElement.requestPointerLock();
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (!orbiting) return;
+  const dx = (document.pointerLockElement === renderer.domElement) ? e.movementX : (e.clientX - lastMouseX);
+  lastMouseX = e.clientX;
+  camAngle -= dx * 0.006;
+});
+window.addEventListener('mouseup', e => {
+  if (e.button === 2){
+    orbiting = false;
+    if (document.exitPointerLock) document.exitPointerLock();
+  }
+});
+
+function loop(){
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  fireLight.intensity = 2.0 + Math.sin(performance.now()*0.01)*0.3;
+  flame.scale.y = 1 + Math.sin(performance.now()*0.02)*0.1;
+
+  const mv = computeLocalMoveVector();
+  hostInputDX = mv.dx; hostInputDZ = mv.dz;
+  hostInputFacing = lookFacing();
+
+  if (phase === 'playing'){
+    if (isHost){ if (!gameOver) hostTick(dt); }
+    else { clientRenderTick(dt); }
+    if (mySlot !== null && players && players[mySlot]){
+      if (players[mySlot].hasLeaf) players[mySlot].setFacing(lookFacing());
+      updateCamera(players[mySlot], dt);
+    }
+  } else {
+    updateMenuCamera();
+  }
+
+  updateFallingLeaves(dt);
+  renderer.render(scene, camera);
+}
+
+rebuildPlayers();
+loop();
+</script>
+</body>
+</html>
