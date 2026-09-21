@@ -48,8 +48,8 @@
   <span>You are: <b id="youLabel">Connecting…</b></span>
   <span>⏱ <b id="timer">90</b>s</span>
 </div>
-<div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Right-click + drag: look / turn
-  &nbsp;|&nbsp; Space / Left-click: swing stick &nbsp;|&nbsp; Tag someone and the banna drops!</div>
+<div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Right-click + drag: look / turn
+  &nbsp;|&nbsp; Left-click: swing stick &nbsp;|&nbsp; Tag someone and the banna drops!</div>
 <div id="banner">
   <div id="bannerText"></div>
   <button onclick="onPlayAgainClick()">Play Again</button>
@@ -267,8 +267,11 @@ const BOT_DIFF = {
   normal: { speed: 4.5, missChance: 0.2,  wanderMix: 0.08, preferHumans: false },
   hard:   { speed: 5.7, missChance: 0.04, wanderMix: 0,    preferHumans: true }
 };
+const JUMP_SPEED = 8.2;
+const GRAVITY = 24;
 let botCount = 3;
 let botDifficulty = 'normal';
+
 
 class Player {
   constructor(i){
@@ -287,6 +290,7 @@ class Player {
     this.swingCooldown = 0;
     this.walkT = Math.random()*10;
     this.protectedNow = false;
+    this.vy = 0;
   }
   distTo(o){ return Math.hypot(this.mesh.position.x-o.mesh.position.x, this.mesh.position.z-o.mesh.position.z); }
   distToCenter(){ return Math.hypot(this.mesh.position.x, this.mesh.position.z); }
@@ -307,14 +311,30 @@ class Player {
     if (faceMove) this.setFacing(Math.atan2(-dx, -dz));
     return true;
   }
+  onGround(){ return this.mesh.position.y <= 0.02; }
+  jump(){
+    if (!this.hasLeaf || !this.onGround()) return;
+    this.vy = JUMP_SPEED;
+  }
+  updateJump(dt){
+    this.vy -= GRAVITY * dt;
+    this.mesh.position.y += this.vy * dt;
+    if (this.mesh.position.y <= 0){
+      this.mesh.position.y = 0;
+      this.vy = 0;
+    }
+  }
   animate(dt, moving){
     const p = this.mesh.userData.parts;
     if (!this.hasLeaf) return;
-    if (moving){
+    if (moving && this.onGround()){
       this.walkT += dt*8;
       const s = Math.sin(this.walkT)*0.5;
       p.leftLeg.rotation.x = s; p.rightLeg.rotation.x = -s;
       if (this.swingTimer<=0){ p.leftArm.rotation.x = -s; p.rightArm.rotation.x = s; }
+    } else if (!this.onGround()){
+      p.leftLeg.rotation.x = -0.55; p.rightLeg.rotation.x = 0.35;
+      if (this.swingTimer<=0){ p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8; }
     } else {
       p.leftLeg.rotation.x *= 0.8; p.rightLeg.rotation.x *= 0.8;
       if (this.swingTimer<=0){ p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8; }
@@ -563,10 +583,10 @@ const camPos = new THREE.Vector3(0,8,18);
 const camTarget = new THREE.Vector3();
 function updateCamera(p, dt){
   const back = new THREE.Vector3(Math.sin(camAngle), 0, Math.cos(camAngle)).multiplyScalar(6);
-  const desired = new THREE.Vector3(p.mesh.position.x + back.x, 4.2, p.mesh.position.z + back.z);
+  const desired = new THREE.Vector3(p.mesh.position.x + back.x, 4.2 + p.mesh.position.y * 0.35, p.mesh.position.z + back.z);
   camPos.lerp(desired, Math.min(1, dt*6));
   camera.position.copy(camPos);
-  camTarget.lerp(new THREE.Vector3(p.mesh.position.x, 1.4, p.mesh.position.z), Math.min(1, dt*8));
+  camTarget.lerp(new THREE.Vector3(p.mesh.position.x, 1.4 + p.mesh.position.y, p.mesh.position.z), Math.min(1, dt*8));
   camera.lookAt(camTarget);
 }
 function updateMenuCamera(){
@@ -732,6 +752,9 @@ function hostMessageHandler(m){
   } else if (m.type === 'swing'){
     const slot = slotOwner.indexOf(m.id);
     if (slot !== -1 && players && players[slot]) players[slot].startSwing();
+  } else if (m.type === 'jump'){
+    const slot = slotOwner.indexOf(m.id);
+    if (slot !== -1 && players && players[slot]) players[slot].jump();
   } else if (m.type === 'restart'){
     if (phase === 'playing') resetGame();
   }
@@ -954,9 +977,11 @@ function hostTick(dt){
     if (ownerId){
       if (typeof facing === 'number') p.setFacing(facing);
       const moved = p.move(dx, dz, dt, false);
+      p.updateJump(dt);
       p.animate(dt, moved);
     } else if (botSlotSet().has(i) && p.mesh.visible){
       updateAI(p, dt);
+      p.updateJump(dt);
     }
   });
   checkTags();
@@ -977,8 +1002,10 @@ function clientRenderTick(dt){
     const p = players[i];
     const dxp = sp.x - p.mesh.position.x, dzp = sp.z - p.mesh.position.z;
     const moved = Math.hypot(dxp,dzp) > 0.01;
+    const dyp = (sp.y || 0) - p.mesh.position.y;
     p.mesh.position.x += dxp * Math.min(1, dt*10);
     p.mesh.position.z += dzp * Math.min(1, dt*10);
+    p.mesh.position.y += dyp * Math.min(1, dt*12);
     if (i !== mySlot){
       let dr = sp.rotY - p.mesh.rotation.y;
       dr = Math.atan2(Math.sin(dr), Math.cos(dr));
@@ -1010,7 +1037,7 @@ setInterval(() => {
       remaining: players.filter(p=>p.hasLeaf && p.mesh.visible).length,
       gameOver, bannerText: gameOver ? document.getElementById('bannerText').textContent : '',
       players: players.map(p => ({
-        x:p.mesh.position.x, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
+        x:p.mesh.position.x, y:p.mesh.position.y, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
         hasLeaf:p.hasLeaf, swingTimer:p.swingTimer, active: p.mesh.visible
       }))
     });
@@ -1020,6 +1047,11 @@ setInterval(() => {
   }
 }, 50);
 
+function triggerJump(){
+  if (phase !== 'playing' || gameOver || mySlot === null) return;
+  if (isHost) players[mySlot].jump();
+  else netSend({type:'jump', id: localId});
+}
 function triggerSwing(){
   if (phase !== 'playing' || gameOver || mySlot === null) return;
   if (isHost) players[mySlot].startSwing();
@@ -1028,7 +1060,7 @@ function triggerSwing(){
 window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   keys[k] = true;
-  if (k === ' ' && phase === 'playing'){ e.preventDefault(); triggerSwing(); }
+  if (k === ' ' && phase === 'playing'){ e.preventDefault(); triggerJump(); }
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 renderer.domElement.addEventListener('click', e => {
