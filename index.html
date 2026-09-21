@@ -527,26 +527,57 @@ function playNooo(){
   try {
     ensureAudio();
     if (!audioCtx || muted) return;
-    const t = audioCtx.currentTime;
-    const o1 = audioCtx.createOscillator();
-    const o2 = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    const f = audioCtx.createBiquadFilter();
-    o1.type = 'sawtooth';
-    o2.type = 'triangle';
-    o1.frequency.setValueAtTime(320, t);
-    o1.frequency.exponentialRampToValueAtTime(110, t + 0.85);
-    o2.frequency.setValueAtTime(330, t);
-    o2.frequency.exponentialRampToValueAtTime(118, t + 0.85);
-    f.type = 'lowpass';
-    f.frequency.setValueAtTime(900, t);
-    f.frequency.exponentialRampToValueAtTime(400, t + 0.85);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.28, t + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.95);
-    o1.connect(f); o2.connect(f); f.connect(g); g.connect(sfxGain);
-    o1.start(t); o2.start(t);
-    o1.stop(t + 1); o2.stop(t + 1);
+    const t0 = audioCtx.currentTime;
+    function syllable(start, dur, fStart, fEnd, vol){
+      const o1 = audioCtx.createOscillator();
+      const o2 = audioCtx.createOscillator();
+      const vib = audioCtx.createOscillator();
+      const vibGain = audioCtx.createGain();
+      const f = audioCtx.createBiquadFilter();
+      const g = audioCtx.createGain();
+      o1.type = 'sawtooth';
+      o2.type = 'triangle';
+      o1.frequency.setValueAtTime(fStart, start);
+      o1.frequency.exponentialRampToValueAtTime(Math.max(80, fEnd), start + dur);
+      o2.frequency.setValueAtTime(fStart * 1.03, start);
+      o2.frequency.exponentialRampToValueAtTime(Math.max(80, fEnd * 1.02), start + dur);
+      vib.frequency.value = 6.5;
+      vibGain.gain.value = 12;
+      vib.connect(vibGain);
+      vibGain.connect(o1.frequency);
+      f.type = 'bandpass';
+      f.Q.value = 2.2;
+      f.frequency.setValueAtTime(fStart * 2.2, start);
+      f.frequency.exponentialRampToValueAtTime(Math.max(200, fEnd * 1.6), start + dur);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(vol, start + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, start + dur);
+      o1.connect(f); o2.connect(f); f.connect(g); g.connect(sfxGain);
+      o1.start(start); o2.start(start); vib.start(start);
+      o1.stop(start + dur + 0.02); o2.stop(start + dur + 0.02); vib.stop(start + dur + 0.02);
+    }
+    function noiseHit(start, dur, freq){
+      const frames = Math.floor(audioCtx.sampleRate * dur);
+      const buf = audioCtx.createBuffer(1, frames, audioCtx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = freq;
+      bp.Q.value = 0.8;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.22, start);
+      g.gain.exponentialRampToValueAtTime(0.001, start + dur);
+      src.connect(bp); bp.connect(g); g.connect(sfxGain);
+      src.start(start); src.stop(start + dur);
+    }
+    // original shocked react: "oh!" "hell" "naaah"
+    noiseHit(t0, 0.08, 1600);
+    syllable(t0, 0.16, 420, 340, 0.22);
+    syllable(t0 + 0.18, 0.14, 260, 210, 0.18);
+    syllable(t0 + 0.34, 0.72, 240, 92, 0.3);
   } catch (err) {}
 }
 function dropLeaf(player){
