@@ -95,7 +95,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=8 — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=9 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -357,8 +357,8 @@ function makeBanana(){
 }
 
 function makeCharacter(colorHex){
-  // Blocky toy-humanoid (LEGO / Roblox-style proportions, Three.js BoxGeometry).
-  // Palms + finger boxes — no skinned rig, IK, or downloaded models.
+  // Procedural joint chain (Groups): shoulder → elbow (X-only) → wrist → palm.
+  // Stick is parented to palm (grip target cannot lag). BoxGeometry has no skin weights.
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({color:colorHex});
   const headMat = new THREE.MeshStandardMaterial({color:0xe0b088});
@@ -374,30 +374,68 @@ function makeCharacter(colorHex){
   head.position.y = 1.96;
   g.add(head);
 
+  function addFinger(palm, x, z, curl){
+    const knuckle = new THREE.Group();
+    knuckle.position.set(x, -0.07, z);
+    knuckle.rotation.x = curl;
+    const b1 = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.075, 0.036), skinMat);
+    b1.position.y = -0.038;
+    knuckle.add(b1);
+    const mid = new THREE.Group();
+    mid.position.y = -0.076;
+    mid.rotation.x = curl * 0.85;
+    const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.07, 0.032), skinMat);
+    b2.position.y = -0.035;
+    mid.add(b2);
+    knuckle.add(mid);
+    palm.add(knuckle);
+  }
   function makeArm(side){
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.66, 0.2), bodyMat);
-    arm.position.set(side * 0.5, 1.3, 0.04);
-    arm.geometry.translate(0, -0.33, 0);
-    arm.rotation.z = side * 0.16;
-    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.22), skinMat);
-    palm.position.set(side * 0.02, -0.68, 0.04);
-    palm.rotation.x = -0.25;
-    arm.add(palm);
-    const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.05), skinMat);
-    thumb.position.set(side * 0.12, -0.02, 0.04);
-    thumb.rotation.z = side * -0.7;
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * 0.46, 1.48, 0.02);
+    shoulder.rotation.z = side * 0.12;
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.38, 0.18), bodyMat);
+    upper.position.y = -0.19;
+    shoulder.add(upper);
+    const elbow = new THREE.Group();
+    elbow.position.y = -0.38;
+    elbow.rotation.x = 0.42;
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.16), bodyMat);
+    lower.position.y = -0.18;
+    elbow.add(lower);
+    shoulder.add(elbow);
+    const wrist = new THREE.Group();
+    wrist.position.y = -0.36;
+    wrist.rotation.x = -0.12;
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.2), skinMat);
+    palm.position.set(0, -0.05, 0.02);
+    wrist.add(palm);
+    elbow.add(wrist);
+    addFinger(palm, -0.054, 0.05, 1.05);
+    addFinger(palm, -0.018, 0.06, 1.12);
+    addFinger(palm, 0.018, 0.06, 1.12);
+    addFinger(palm, 0.054, 0.05, 1.02);
+    const thumb = new THREE.Group();
+    thumb.position.set(side * 0.09, -0.02, 0.02);
+    thumb.rotation.z = side * -1.05;
+    thumb.rotation.y = side * 0.55;
+    thumb.rotation.x = 0.55;
+    const tb1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.04), skinMat);
+    tb1.position.y = -0.03;
+    thumb.add(tb1);
+    const tb2g = new THREE.Group();
+    tb2g.position.y = -0.06;
+    tb2g.rotation.x = 0.7;
+    const tb2 = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.06, 0.036), skinMat);
+    tb2.position.y = -0.03;
+    tb2g.add(tb2);
+    thumb.add(tb2g);
     palm.add(thumb);
-    for (let i = 0; i < 4; i++){
-      const f = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.04), skinMat);
-      f.position.set(-0.07 + i * 0.046, -0.12, 0.06);
-      f.rotation.x = 0.35;
-      palm.add(f);
-    }
-    return {arm, palm};
+    return {shoulder, elbow, wrist, palm, arm: shoulder};
   }
   const left = makeArm(1);
   const right = makeArm(-1);
-  g.add(left.arm, right.arm);
+  g.add(left.shoulder, right.shoulder);
 
   const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.82, 0.26), new THREE.MeshStandardMaterial({color:0x2b2b2b}));
   leftLeg.position.set(0.18, 0.62, 0);
@@ -414,7 +452,9 @@ function makeCharacter(colorHex){
   shorts.position.y = 0.74;
   g.add(shorts);
 
-  g.userData.parts = {torso, head, leftArm: left.arm, rightArm: right.arm, leftLeg, rightLeg, shorts};
+  g.userData.parts = {torso, head, leftArm: left.shoulder, rightArm: right.shoulder, leftLeg, rightLeg, shorts};
+  g.userData.leftChain = left;
+  g.userData.rightChain = right;
 
   const skirt = makeLeafSkirt();
   g.add(skirt);
@@ -424,9 +464,8 @@ function makeCharacter(colorHex){
     new THREE.CylinderGeometry(0.04, 0.05, 1.4, 6),
     new THREE.MeshStandardMaterial({color:0x8a6a3d})
   );
-  stick.position.set(-0.02, -0.02, 0.52);
-  stick.rotation.x = 1.25;
-  stick.rotation.z = 0.08;
+  stick.position.set(0, -0.01, 0.06);
+  stick.rotation.x = 1.12;
   right.palm.add(stick);
   const trail = new THREE.Mesh(
     new THREE.BoxGeometry(0.1, 1.15, 0.03),
@@ -437,10 +476,31 @@ function makeCharacter(colorHex){
   stick.add(trail);
   g.userData.stick = stick;
   g.userData.stickTrail = trail;
-  g.userData.stickArm = right.arm;
+  g.userData.stickArm = right.shoulder;
   g.userData.stickPalm = right.palm;
 
   return g;
+}
+
+const SWING_REST = { sh:{x:0.1, y:0, z:-0.12}, el:0.42, wr:{x:-0.12, y:0, z:0} };
+const SWING_WIND = { sh:{x:-0.95, y:0.4, z:0.18}, el:0.7, wr:{x:-0.2, y:0.14, z:0.05} };
+const SWING_FOLLOW = { sh:{x:0.72, y:-0.28, z:-0.1}, el:0.28, wr:{x:0.16, y:-0.08, z:0} };
+function lerpNum(a, b, t){ return a + (b - a) * t; }
+function mixArmPose(a, b, t){
+  t = Math.max(0, Math.min(1, t));
+  return {
+    sh: {x: lerpNum(a.sh.x, b.sh.x, t), y: lerpNum(a.sh.y, b.sh.y, t), z: lerpNum(a.sh.z, b.sh.z, t)},
+    el: lerpNum(a.el, b.el, t),
+    wr: {x: lerpNum(a.wr.x, b.wr.x, t), y: lerpNum(a.wr.y, b.wr.y, t), z: lerpNum(a.wr.z, b.wr.z, t)}
+  };
+}
+function applyArmPose(chain, pose){
+  if (!chain) return;
+  chain.shoulder.rotation.x = pose.sh.x;
+  chain.shoulder.rotation.y = pose.sh.y;
+  chain.shoulder.rotation.z = pose.sh.z;
+  chain.elbow.rotation.set(Math.max(ELBOW_MIN, Math.min(ELBOW_MAX, pose.el)), 0, 0);
+  chain.wrist.rotation.set(pose.wr.x, pose.wr.y, pose.wr.z);
 }
 
 // ================= Entities =================
@@ -462,10 +522,15 @@ const SPRINT_DRAIN = MAX_ENERGY / 5;
 const ENERGY_REGEN = 35;
 const SPRINT_LOCK = 5;
 const CROUCH_MULT = 0.55;
-const SWING_WINDUP = 0.12;
-const SWING_ACTIVE = 0.18;
-const SWING_RECOVERY = 0.22;
+const windupDuration = 0.12;
+const activeDuration = 0.18;
+const recoverDuration = 0.22;
+const SWING_WINDUP = windupDuration;
+const SWING_ACTIVE = activeDuration;
+const SWING_RECOVERY = recoverDuration;
 const SWING_HIT_R = 1.05;
+const ELBOW_MIN = 0.18;
+const ELBOW_MAX = 1.45;
 const COUNTDOWN_SECS = 5;
 let botCount = 3;
 let botDifficulty = 'normal';
@@ -670,9 +735,15 @@ class Player {
       const s = Math.sin(this.walkT) * (this.crouched ? 0.28 : 0.5);
       p.leftLeg.rotation.x = s; p.rightLeg.rotation.x = -s;
       if (this.swingPhase === 'idle'){
-        p.leftArm.rotation.x = -s; p.rightArm.rotation.x = s;
-        p.leftArm.rotation.y *= 0.7; p.rightArm.rotation.y *= 0.7;
-        p.leftArm.rotation.z *= 0.7; p.rightArm.rotation.z *= 0.7;
+        p.leftArm.rotation.x = -s;
+        p.rightArm.rotation.x = s * 0.45 + SWING_REST.sh.x;
+        p.leftArm.rotation.y *= 0.7;
+        p.rightArm.rotation.y *= 0.7;
+        const rc = this.mesh.userData.rightChain;
+        if (rc){
+          rc.elbow.rotation.set(SWING_REST.el, 0, 0);
+          rc.wrist.rotation.set(SWING_REST.wr.x, SWING_REST.wr.y, SWING_REST.wr.z);
+        }
       }
     } else if (!this.onGround()){
       p.leftLeg.rotation.x = -0.55; p.rightLeg.rotation.x = 0.35;
@@ -684,9 +755,8 @@ class Player {
     } else {
       p.leftLeg.rotation.x *= 0.8; p.rightLeg.rotation.x *= 0.8;
       if (this.swingPhase === 'idle'){
-        p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8;
-        p.leftArm.rotation.y *= 0.8; p.rightArm.rotation.y *= 0.8;
-        p.leftArm.rotation.z *= 0.8; p.rightArm.rotation.z *= 0.8;
+        p.leftArm.rotation.x *= 0.8;
+        applyArmPose(this.mesh.userData.rightChain, SWING_REST);
       }
     }
     if (this.crouched && this.onGround()){
@@ -698,35 +768,32 @@ class Player {
         this.swingTimer -= dt;
         if (this.swingPhase === 'windup' && this.swingTimer <= 0){
           this.swingPhase = 'active';
-          this.swingTimer = SWING_ACTIVE;
+          this.swingTimer = activeDuration;
           playSwish();
         } else if (this.swingPhase === 'active' && this.swingTimer <= 0){
           this.swingPhase = 'recover';
-          this.swingTimer = SWING_RECOVERY;
+          this.swingTimer = recoverDuration;
         } else if (this.swingPhase === 'recover' && this.swingTimer <= 0){
           this.swingPhase = 'idle';
         }
       }
-      const arm = this.mesh.userData.stickArm;
       const trail = this.mesh.userData.stickTrail;
       if (trail) trail.visible = this.swingPhase === 'active';
+      const rc = this.mesh.userData.rightChain;
+      let pose = SWING_REST;
       if (this.swingPhase === 'windup'){
-        arm.rotation.x = -1.55;
-        arm.rotation.y = 0.55;
-        arm.rotation.z = 0.35;
-        p.leftArm.rotation.x = 0.35;
+        const t = 1 - Math.max(0, this.swingTimer) / windupDuration;
+        pose = mixArmPose(SWING_REST, SWING_WIND, t);
+        p.leftArm.rotation.x = 0.3;
       } else if (this.swingPhase === 'active'){
-        const t = 1 - Math.max(0, this.swingTimer) / SWING_ACTIVE;
-        const sweep = Math.sin(t * Math.PI);
-        arm.rotation.x = -1.55 + sweep * 2.4;
-        arm.rotation.y = 0.55 - t * 1.15;
-        arm.rotation.z = 0.35 - t * 0.5;
-        p.leftArm.rotation.x = 0.35 - t * 0.4;
+        const t = 1 - Math.max(0, this.swingTimer) / activeDuration;
+        pose = mixArmPose(SWING_WIND, SWING_FOLLOW, t);
+        p.leftArm.rotation.x = 0.3 - t * 0.35;
       } else if (this.swingPhase === 'recover'){
-        arm.rotation.x *= 0.72;
-        arm.rotation.y *= 0.72;
-        arm.rotation.z *= 0.72;
+        const t = 1 - Math.max(0, this.swingTimer) / recoverDuration;
+        pose = mixArmPose(SWING_FOLLOW, SWING_REST, t);
       }
+      applyArmPose(rc, pose);
     } else if (this.mesh.userData.stickTrail){
       this.mesh.userData.stickTrail.visible = false;
     }
@@ -743,7 +810,7 @@ class Player {
   startSwing(){
     if (!this.hasLeaf || this.swingCooldown > 0 || this.swingPhase !== 'idle') return;
     this.swingPhase = 'windup';
-    this.swingTimer = SWING_WINDUP;
+    this.swingTimer = windupDuration;
     this.swingCooldown = 0.6;
   }
   eliminate(){
@@ -1148,19 +1215,30 @@ function computeProtection(){
 }
 function checkTags(){
   for (const attacker of players){
-    if (attacker.swingPhase !== 'active') continue;
+    if (attacker.swingPhase !== 'active'){
+      attacker._stickPrev = null;
+      continue;
+    }
     const samples = attacker.stickSamples();
+    const prev = attacker._stickPrev || [];
     for (const target of players){
       if (target === attacker || !target.hasLeaf || target.protectedNow || !target.mesh.visible) continue;
       const tx = target.mesh.position.x, ty = target.mesh.position.y + 1.05, tz = target.mesh.position.z;
-      let hit = attacker.distTo(target) < 1.55;
+      let hit = false;
+      for (const pt of samples){
+        if (Math.hypot(pt.x - tx, pt.y - ty, pt.z - tz) < SWING_HIT_R){ hit = true; break; }
+      }
       if (!hit){
-        for (const pt of samples){
-          if (Math.hypot(pt.x - tx, pt.y - ty, pt.z - tz) < SWING_HIT_R){ hit = true; break; }
+        for (let i = 0; i < samples.length && i < prev.length; i++){
+          const mx = (samples[i].x + prev[i].x) * 0.5;
+          const my = (samples[i].y + prev[i].y) * 0.5;
+          const mz = (samples[i].z + prev[i].z) * 0.5;
+          if (Math.hypot(mx - tx, my - ty, mz - tz) < SWING_HIT_R){ hit = true; break; }
         }
       }
       if (hit) target.takeHit();
     }
+    attacker._stickPrev = samples;
   }
 }
 
@@ -1239,7 +1317,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=8';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=9';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
@@ -1781,6 +1859,7 @@ function clientRenderTick(dt){
     if (p.hasLeaf && !sp.hasLeaf) p.eliminate();
     p.hasLeaf = sp.hasLeaf;
     p.swingTimer = sp.swingTimer;
+    if (sp.swingPhase === 'active' && p.swingPhase !== 'active') playSwish();
     if (sp.swingPhase) p.swingPhase = sp.swingPhase;
     if (typeof sp.energy === 'number') p.energy = sp.energy;
     if (typeof sp.sprintLock === 'number') p.sprintLock = sp.sprintLock;
