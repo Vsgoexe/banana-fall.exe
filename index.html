@@ -57,13 +57,13 @@
 <div id="hud">
   <span>🍌 Players left: <b id="pCount">8</b>/<b id="pTotal">8</b></span>
   <span>You are: <b id="youLabel">Connecting…</b></span>
-  <span>❤️ <b id="hpLabel">3</b>/3</span>
+  <span>❤️ <b id="hpLabel">5</b>/5</span>
   <span>⏱ <b id="timer">90</b>s</span>
   <span>🗺️ <b id="mapHud">Campfire Grove</b></span>
 </div>
 <button id="btnMute" type="button" title="Mute">🔊</button>
 <div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Move mouse: look / turn
-  &nbsp;|&nbsp; Left-click: swing stick (3 hits to knock the banana) &nbsp;|&nbsp; Hide behind trees, walls, and crates!</div>
+  &nbsp;|&nbsp; Left-click: swing stick (5 hits to knock the banana) &nbsp;|&nbsp; Hide behind trees, walls, and crates!</div>
 <div id="banner">
   <div id="bannerText"></div>
   <div class="banner-actions">
@@ -85,7 +85,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=4 — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=5 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -170,7 +170,7 @@ fireGroup.add(flame);
 scene.add(fireGroup);
 
 const PLAYER_R = 0.42;
-const MAX_HP = 3;
+const MAX_HP = 5;
 let currentMap = 'grove';
 const mapGroup = new THREE.Group();
 scene.add(mapGroup);
@@ -181,10 +181,36 @@ function addObstacle(minX, maxX, minZ, maxZ, h, jumpOver){
 }
 function blockedAt(x, z, y){
   for (const o of obstacles){
-    if (y >= o.h - 0.12) continue;
+    if (o.jumpOver && y >= o.h - 0.12) continue;
     if (x + PLAYER_R > o.minX && x - PLAYER_R < o.maxX && z + PLAYER_R > o.minZ && z - PLAYER_R < o.maxZ) return true;
   }
   return false;
+}
+function unstick(x, z, y){
+  let px = x, pz = z;
+  for (let n = 0; n < 4; n++){
+    let hit = null;
+    for (const o of obstacles){
+      if (o.jumpOver && y >= o.h - 0.12) continue;
+      if (px + PLAYER_R > o.minX && px - PLAYER_R < o.maxX && pz + PLAYER_R > o.minZ && pz - PLAYER_R < o.maxZ){
+        hit = o;
+        break;
+      }
+    }
+    if (!hit) break;
+    const left = (px + PLAYER_R) - hit.minX;
+    const right = hit.maxX - (px - PLAYER_R);
+    const south = (pz + PLAYER_R) - hit.minZ;
+    const north = hit.maxZ - (pz - PLAYER_R);
+    const m = Math.min(left, right, south, north);
+    if (m === left) px -= left + 0.04;
+    else if (m === right) px += right + 0.04;
+    else if (m === south) pz -= south + 0.04;
+    else pz += north + 0.04;
+  }
+  const r = Math.hypot(px, pz);
+  if (r > ARENA_R){ px *= ARENA_R / r; pz *= ARENA_R / r; }
+  return {x: px, z: pz};
 }
 function addBoxCover(x, z, w, d, h, color, jumpOver){
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({color}));
@@ -201,14 +227,14 @@ function addTreeCover(x, z){
   g.add(trunk, leaves);
   g.position.set(x, 0, z);
   mapGroup.add(g);
-  addObstacle(x - 0.65, x + 0.65, z - 0.65, z + 0.65, 2.8, false);
+  addObstacle(x - 0.42, x + 0.42, z - 0.42, z + 0.42, 2.8, false);
 }
 function addRock(x, z, s){
-  const m = new THREE.Mesh(new THREE.BoxGeometry(s * 2.2, s * 1.6, s * 2.2), new THREE.MeshStandardMaterial({color: 0x6a6a62}));
-  m.position.set(x, s * 0.8, z);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(s * 1.8, s * 1.4, s * 1.8), new THREE.MeshStandardMaterial({color: 0x6a6a62}));
+  m.position.set(x, s * 0.7, z);
   m.rotation.y = 0.4;
   mapGroup.add(m);
-  addObstacle(x - s, x + s, z - s, z + s, s * 1.5, s < 0.85);
+  addObstacle(x - s * 0.7, x + s * 0.7, z - s * 0.7, z + s * 0.7, s * 1.3, s < 0.9);
 }
 function clearMap(){
   while (mapGroup.children.length) mapGroup.remove(mapGroup.children[0]);
@@ -226,9 +252,9 @@ const MAPS = {
     name: 'Campfire Grove',
     ground: 0x2c4a26, bg: 0x0b1a0c, fog: 0x0b1a0c,
     build(){
-      const trees = [[6,8],[-7,5],[8,-6],[-5,-8],[10,2],[-9,-2],[0,12],[0,-13],[13,10],[-12,9],[12,-12],[-13,-10],[16,5],[-16,6],[5,16],[-6,-16],[15,-9],[-15,9]];
+      const trees = [[6,8],[-7,5],[8,-6],[-5,-8],[9,2],[-8,-3],[0,11],[0,-11],[11,8],[-11,8],[11,-8],[-11,-8]];
       trees.forEach(([x,z]) => addTreeCover(x, z));
-      [[7,-2],[-8,3],[3,9],[-4,-10],[11,6]].forEach(([x,z]) => addRock(x, z, 1.1));
+      [[5,-3],[-6,4],[3,8],[-3,-8]].forEach(([x,z]) => addRock(x, z, 0.85));
     }
   },
   ruins: {
@@ -479,7 +505,13 @@ class Player {
     if (dx===0 && dz===0) return false;
     const len = Math.hypot(dx,dz);
     dx/=len; dz/=len;
-    const ox = this.mesh.position.x, oz = this.mesh.position.z, oy = this.mesh.position.y;
+    let ox = this.mesh.position.x, oz = this.mesh.position.z, oy = this.mesh.position.y;
+    if (blockedAt(ox, oz, oy)){
+      const p = unstick(ox, oz, oy);
+      this.mesh.position.x = p.x;
+      this.mesh.position.z = p.z;
+      ox = p.x; oz = p.z;
+    }
     let nx = ox + dx*this.speed*dt;
     let nz = oz + dz*this.speed*dt;
     const r = Math.hypot(nx,nz);
@@ -504,6 +536,11 @@ class Player {
     if (this.mesh.position.y <= 0){
       this.mesh.position.y = 0;
       this.vy = 0;
+      if (blockedAt(this.mesh.position.x, this.mesh.position.z, 0)){
+        const p = unstick(this.mesh.position.x, this.mesh.position.z, 0);
+        this.mesh.position.x = p.x;
+        this.mesh.position.z = p.z;
+      }
     }
   }
   animate(dt, moving){
@@ -532,7 +569,7 @@ class Player {
   takeHit(){
     if (!this.hasLeaf || this.protectedNow || this.hurtTimer > 0) return;
     this.hp -= 1;
-    this.hurtTimer = 0.55;
+    this.hurtTimer = 0.7;
     drawPlayerLabel(this);
     if (this.hp <= 0) this.eliminate();
   }
@@ -997,7 +1034,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=4';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=5';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
