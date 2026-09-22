@@ -40,6 +40,14 @@
     text-align:center;border-radius:8px;border:1px solid #3d5a2a;background:#0b120a;color:#ffe066;}
   #btnMute{position:fixed;top:12px;right:12px;z-index:6;padding:6px 10px;border:0;border-radius:8px;
     background:#00000066;color:#ffe066;cursor:pointer;font-size:16px;}
+  #btnReturnLobby{position:fixed;top:12px;left:12px;z-index:7;display:none;padding:8px 12px;border:0;
+    border-radius:8px;background:#ffe066;color:#1a1400;font-weight:700;cursor:pointer;font-size:13px;}
+  #countDown{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    z-index:9;pointer-events:none;font-size:96px;font-weight:800;color:#ffe066;
+    text-shadow:0 6px 24px #000a;letter-spacing:6px;}
+  #energyWrap{display:inline-flex;align-items:center;gap:6px;}
+  #energyBar{width:72px;height:8px;background:#222;border-radius:4px;overflow:hidden;}
+  #energyFill{display:block;height:100%;width:100%;background:#ffe066;}
   #lobbyList{list-style:none;padding:0;margin:12px 0;text-align:left;}
   #lobbyList li{padding:6px 10px;margin:4px 0;background:#00000055;border-radius:6px;}
   .room-code{font-size:28px;letter-spacing:8px;color:#ffe066;font-weight:700;}
@@ -58,17 +66,19 @@
   <span>🍌 Players left: <b id="pCount">8</b>/<b id="pTotal">8</b></span>
   <span>You are: <b id="youLabel">Connecting…</b></span>
   <span>❤️ <b id="hpLabel">5</b>/5</span>
+  <span id="energyWrap">⚡ <span id="energyBar"><span id="energyFill"></span></span></span>
   <span>⏱ <b id="timer">90</b>s</span>
   <span>🗺️ <b id="mapHud">Campfire Grove</b></span>
 </div>
 <button id="btnMute" type="button" title="Mute">🔊</button>
-<div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Move mouse: look / turn
-  &nbsp;|&nbsp; Left-click: swing stick (5 hits to knock the banana) &nbsp;|&nbsp; Hide behind trees, walls, and crates!</div>
+<button type="button" id="btnReturnLobby">Return to lobby</button>
+<div id="countDown">5</div>
+<div id="tip">WASD: walk &nbsp;|&nbsp; Shift: sprint &nbsp;|&nbsp; Ctrl: crouch &nbsp;|&nbsp; Space: jump
+  &nbsp;|&nbsp; Mouse: look &nbsp;|&nbsp; Left-click: swing (5 hits) &nbsp;|&nbsp; Hide behind cover!</div>
 <div id="banner">
   <div id="bannerText"></div>
   <div class="banner-actions">
-    <button type="button" id="btnReturnLobby">Return to lobby</button>
-    <button type="button" id="btnPlayAgain" class="secondary">Play Again</button>
+    <button type="button" id="btnPlayAgain">Play Again</button>
   </div>
 </div>
 
@@ -85,7 +95,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=6 — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=7 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -179,9 +189,9 @@ let obstacles = [];
 function addObstacle(minX, maxX, minZ, maxZ, h, jumpOver){
   obstacles.push({minX, maxX, minZ, maxZ, h, jumpOver: !!jumpOver});
 }
-function blockedAt(x, z, y){
+function blockedAt(x, z, y, crouched){
   for (const o of obstacles){
-    if (o.jumpOver && y >= o.h - 0.12) continue;
+    if (o.jumpOver && (y >= o.h - 0.12 || (crouched && o.h < 1.2))) continue;
     if (x + PLAYER_R > o.minX && x - PLAYER_R < o.maxX && z + PLAYER_R > o.minZ && z - PLAYER_R < o.maxZ) return true;
   }
   return false;
@@ -347,58 +357,73 @@ function makeBanana(){
 }
 
 function makeCharacter(colorHex){
+  // Blocky toy-humanoid (LEGO / Roblox-style proportions, Three.js BoxGeometry).
+  // Palms + finger boxes — no skinned rig, IK, or downloaded models.
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({color:colorHex});
   const headMat = new THREE.MeshStandardMaterial({color:0xe0b088});
+  const skinMat = new THREE.MeshStandardMaterial({color:0xe0b088});
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.8,1.0,0.45), bodyMat);
-  torso.position.y = 1.15;
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.92, 0.4), bodyMat);
+  torso.position.y = 1.18;
   g.add(torso);
-
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.55,0.55), headMat);
-  head.position.y = 1.95;
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.16), skinMat);
+  neck.position.y = 1.68;
+  g.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), headMat);
+  head.position.y = 1.96;
   g.add(head);
 
-  const armGeo = new THREE.BoxGeometry(0.24,0.8,0.24);
-  const leftArm = new THREE.Mesh(armGeo, bodyMat);
-  leftArm.position.set(0.52, 1.2, 0);
-  leftArm.geometry.translate(0,-0.4,0);
-  const rightArm = new THREE.Mesh(armGeo, bodyMat);
-  rightArm.position.set(-0.52, 1.2, 0);
-  rightArm.geometry.translate(0,-0.4,0);
-  g.add(leftArm, rightArm);
+  function makeArm(side){
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.68, 0.2), bodyMat);
+    arm.position.set(side * 0.48, 1.28, 0);
+    arm.geometry.translate(0, -0.34, 0);
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.2), skinMat);
+    palm.position.set(0, -0.7, 0.02);
+    arm.add(palm);
+    for (let i = 0; i < 4; i++){
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.11, 0.035), skinMat);
+      f.position.set(-0.06 + i * 0.04, -0.11, 0.07);
+      palm.add(f);
+    }
+    return {arm, palm};
+  }
+  const left = makeArm(1);
+  const right = makeArm(-1);
+  g.add(left.arm, right.arm);
 
-  const legGeo = new THREE.BoxGeometry(0.28,0.9,0.28);
-  const leftLeg = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({color:0x2b2b2b}));
-  leftLeg.position.set(0.2, 0.65, 0);
-  leftLeg.geometry.translate(0,-0.45,0);
-  const rightLeg = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({color:0x2b2b2b}));
-  rightLeg.position.set(-0.2, 0.65, 0);
-  rightLeg.geometry.translate(0,-0.45,0);
+  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.82, 0.26), new THREE.MeshStandardMaterial({color:0x2b2b2b}));
+  leftLeg.position.set(0.18, 0.62, 0);
+  leftLeg.geometry.translate(0, -0.41, 0);
+  const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.82, 0.26), new THREE.MeshStandardMaterial({color:0x2b2b2b}));
+  rightLeg.position.set(-0.18, 0.62, 0);
+  rightLeg.geometry.translate(0, -0.41, 0);
   g.add(leftLeg, rightLeg);
 
   const shorts = new THREE.Mesh(
-    new THREE.BoxGeometry(0.86,0.5,0.5),
+    new THREE.BoxGeometry(0.78, 0.42, 0.46),
     new THREE.MeshStandardMaterial({color:0x3a5a7a})
   );
-  shorts.position.y = 0.72;
+  shorts.position.y = 0.74;
   g.add(shorts);
 
-  g.userData.parts = {torso, head, leftArm, rightArm, leftLeg, rightLeg};
+  g.userData.parts = {torso, head, leftArm: left.arm, rightArm: right.arm, leftLeg, rightLeg, shorts};
 
   const skirt = makeLeafSkirt();
   g.add(skirt);
   g.userData.leaf = skirt;
 
   const stick = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05,0.05,1.4,6),
+    new THREE.CylinderGeometry(0.045, 0.05, 1.35, 6),
     new THREE.MeshStandardMaterial({color:0x8a6a3d})
   );
-  stick.position.set(0,-0.5,0.1);
-  stick.rotation.z = Math.PI/2.2;
-  rightArm.add(stick);
+  stick.position.set(0.02, -0.04, 0.42);
+  stick.rotation.x = Math.PI / 2;
+  stick.rotation.z = 0.12;
+  right.palm.add(stick);
   g.userData.stick = stick;
-  g.userData.stickArm = rightArm;
+  g.userData.stickArm = right.arm;
+  g.userData.stickPalm = right.palm;
 
   return g;
 }
@@ -416,6 +441,17 @@ const BOT_DIFF = {
 };
 const JUMP_SPEED = 8.2;
 const GRAVITY = 24;
+const SPRINT_MULT = 1.65;
+const MAX_ENERGY = 100;
+const SPRINT_DRAIN = MAX_ENERGY / 5;
+const ENERGY_REGEN = 35;
+const SPRINT_LOCK = 5;
+const CROUCH_MULT = 0.55;
+const SWING_WINDUP = 0.10;
+const SWING_ACTIVE = 0.16;
+const SWING_RECOVERY = 0.20;
+const SWING_HIT_R = 1.15;
+const COUNTDOWN_SECS = 5;
 let botCount = 3;
 let botDifficulty = 'normal';
 const BOT_NAMES = ['Tiki','Drum','Leaf','Coco','Mango','Torch','Vine','Pebble'];
@@ -485,6 +521,12 @@ class Player {
     this.vy = 0;
     this.hp = MAX_HP;
     this.hurtTimer = 0;
+    this.energy = MAX_ENERGY;
+    this.sprintLock = 0;
+    this.sprinting = false;
+    this.crouched = false;
+    this.crouchT = 0;
+    this.swingPhase = 'idle';
     this.displayName = 'Player ' + (i + 1);
     this.nameSprite = makeNameSprite(this.displayName);
     this.mesh.add(this.nameSprite);
@@ -506,28 +548,72 @@ class Player {
     const len = Math.hypot(dx,dz);
     dx/=len; dz/=len;
     let ox = this.mesh.position.x, oz = this.mesh.position.z, oy = this.mesh.position.y;
-    if (blockedAt(ox, oz, oy)){
+    if (blockedAt(ox, oz, oy, this.crouched)){
       const p = unstick(ox, oz, oy);
       this.mesh.position.x = p.x;
       this.mesh.position.z = p.z;
       ox = p.x; oz = p.z;
     }
-    let nx = ox + dx*this.speed*dt;
-    let nz = oz + dz*this.speed*dt;
+    const spd = this.currentSpeed();
+    let nx = ox + dx*spd*dt;
+    let nz = oz + dz*spd*dt;
     const r = Math.hypot(nx,nz);
     if (r > ARENA_R){ nx *= ARENA_R/r; nz *= ARENA_R/r; }
-    if (blockedAt(nx, nz, oy)){
-      if (!blockedAt(nx, oz, oy)) nz = oz;
-      else if (!blockedAt(ox, nz, oy)) nx = ox;
+    if (blockedAt(nx, nz, oy, this.crouched)){
+      if (!blockedAt(nx, oz, oy, this.crouched)) nz = oz;
+      else if (!blockedAt(ox, nz, oy, this.crouched)) nx = ox;
       else return false;
     }
     this.mesh.position.x = nx; this.mesh.position.z = nz;
     if (faceMove) this.setFacing(Math.atan2(-dx, -dz));
     return true;
   }
+  currentSpeed(){
+    let s = this.speed;
+    if (this.crouched) s *= CROUCH_MULT;
+    else if (this.sprinting) s *= SPRINT_MULT;
+    return s;
+  }
+  canStand(){
+    const x = this.mesh.position.x, z = this.mesh.position.z;
+    for (const o of obstacles){
+      if (!o.jumpOver || o.h >= 1.2) continue;
+      if (x + PLAYER_R > o.minX && x - PLAYER_R < o.maxX && z + PLAYER_R > o.minZ && z - PLAYER_R < o.maxZ) return false;
+    }
+    return true;
+  }
+  tickCrouch(dt, want){
+    const next = !!(want && this.hasLeaf);
+    if (this.crouched && !next && !this.canStand()) return;
+    this.crouched = next;
+    const target = this.crouched ? 1 : 0;
+    this.crouchT += (target - this.crouchT) * Math.min(1, dt * 10);
+  }
+  tickEnergy(dt, wantSprint, moved){
+    if (this.sprintLock > 0){
+      this.sprintLock -= dt;
+      this.sprinting = false;
+      if (this.sprintLock <= 0){
+        this.sprintLock = 0;
+        this.energy = MAX_ENERGY;
+      }
+      return;
+    }
+    this.sprinting = !!(wantSprint && moved && this.energy > 0 && !this.crouched && this.hasLeaf);
+    if (this.sprinting){
+      this.energy -= SPRINT_DRAIN * dt;
+      if (this.energy <= 0){
+        this.energy = 0;
+        this.sprinting = false;
+        this.sprintLock = SPRINT_LOCK;
+      }
+    } else if (this.energy < MAX_ENERGY){
+      this.energy = Math.min(MAX_ENERGY, this.energy + ENERGY_REGEN * dt);
+    }
+  }
   onGround(){ return this.mesh.position.y <= 0.02; }
   jump(){
-    if (!this.hasLeaf || !this.onGround()) return;
+    if (!this.hasLeaf || !this.onGround() || this.crouched) return;
     this.vy = JUMP_SPEED;
   }
   updateJump(dt){
@@ -543,25 +629,58 @@ class Player {
       }
     }
   }
-  animate(dt, moving){
+  stickTipWorld(){
+    const stick = this.mesh.userData.stick;
+    if (!stick) return this.mesh.position.clone();
+    const tip = new THREE.Vector3(0, 0.65, 0);
+    stick.updateMatrixWorld();
+    return tip.applyMatrix4(stick.matrixWorld);
+  }
+  animate(dt, moving, driveSwing){
+    if (driveSwing === undefined) driveSwing = true;
     const p = this.mesh.userData.parts;
     if (!this.hasLeaf) return;
+    const crouchSquat = this.crouchT * 0.45;
+    if (p.torso) p.torso.position.y = 1.18 - crouchSquat * 0.35;
+    if (p.shorts) p.shorts.position.y = 0.74 - crouchSquat * 0.2;
     if (moving && this.onGround()){
-      this.walkT += dt*8;
-      const s = Math.sin(this.walkT)*0.5;
+      this.walkT += dt * (this.sprinting ? 11 : this.crouched ? 6 : 8);
+      const s = Math.sin(this.walkT) * (this.crouched ? 0.28 : 0.5);
       p.leftLeg.rotation.x = s; p.rightLeg.rotation.x = -s;
-      if (this.swingTimer<=0){ p.leftArm.rotation.x = -s; p.rightArm.rotation.x = s; }
+      if (this.swingPhase === 'idle'){ p.leftArm.rotation.x = -s; p.rightArm.rotation.x = s; }
     } else if (!this.onGround()){
       p.leftLeg.rotation.x = -0.55; p.rightLeg.rotation.x = 0.35;
-      if (this.swingTimer<=0){ p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8; }
+      if (this.swingPhase === 'idle'){ p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8; }
     } else {
       p.leftLeg.rotation.x *= 0.8; p.rightLeg.rotation.x *= 0.8;
-      if (this.swingTimer<=0){ p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8; }
+      if (this.swingPhase === 'idle'){ p.leftArm.rotation.x *= 0.8; p.rightArm.rotation.x *= 0.8; }
     }
-    if (this.swingTimer > 0){
-      this.swingTimer -= dt;
-      const t = 1 - Math.max(0,this.swingTimer)/0.35;
-      this.mesh.userData.stickArm.rotation.x = -1.2 + Math.sin(t*Math.PI)*1.8;
+    if (this.crouched && this.onGround()){
+      p.leftLeg.rotation.x += 0.7;
+      p.rightLeg.rotation.x += 0.7;
+    }
+    if (this.swingPhase !== 'idle'){
+      if (driveSwing){
+        this.swingTimer -= dt;
+        if (this.swingPhase === 'windup' && this.swingTimer <= 0){
+          this.swingPhase = 'active';
+          this.swingTimer = SWING_ACTIVE;
+          playSwish();
+        } else if (this.swingPhase === 'active' && this.swingTimer <= 0){
+          this.swingPhase = 'recover';
+          this.swingTimer = SWING_RECOVERY;
+        } else if (this.swingPhase === 'recover' && this.swingTimer <= 0){
+          this.swingPhase = 'idle';
+        }
+      }
+      if (this.swingPhase === 'windup'){
+        this.mesh.userData.stickArm.rotation.x = -1.35;
+      } else if (this.swingPhase === 'active'){
+        const t = 1 - Math.max(0, this.swingTimer) / SWING_ACTIVE;
+        this.mesh.userData.stickArm.rotation.x = -1.35 + Math.sin(t * Math.PI) * 2.1;
+      } else if (this.swingPhase === 'recover'){
+        this.mesh.userData.stickArm.rotation.x *= 0.75;
+      }
     }
     if (this.hurtTimer > 0) this.hurtTimer -= dt;
     if (this.swingCooldown > 0) this.swingCooldown -= dt;
@@ -574,10 +693,10 @@ class Player {
     if (this.hp <= 0) this.eliminate();
   }
   startSwing(){
-    if (!this.hasLeaf || this.swingCooldown > 0) return;
-    this.swingTimer = 0.35;
+    if (!this.hasLeaf || this.swingCooldown > 0 || this.swingPhase !== 'idle') return;
+    this.swingPhase = 'windup';
+    this.swingTimer = SWING_WINDUP;
     this.swingCooldown = 0.6;
-    playSwish();
   }
   eliminate(){
     if (!this.hasLeaf) return;
@@ -813,7 +932,7 @@ function updateFallingLeaves(dt){
 
 // ================= Global game state =================
 let players = null;
-let timeLeft = 90, gameOver = false, roundId = 0;
+let timeLeft = 90, gameOver = false, roundId = 0, countdown = 0;
 let phase = 'menu'; // menu | lobby | playing
 const clock = new THREE.Clock();
 
@@ -858,6 +977,19 @@ function rebuildPlayers(){
 function canLook(){
   return phase === 'playing' && !gameOver;
 }
+function canControl(){
+  return phase === 'playing' && !gameOver && countdown <= 0;
+}
+function updateCountdownUI(){
+  const el = document.getElementById('countDown');
+  if (!el) return;
+  if (phase === 'playing' && !gameOver && countdown > 0){
+    el.style.display = 'flex';
+    el.textContent = String(Math.max(1, Math.ceil(countdown)));
+  } else {
+    el.style.display = 'none';
+  }
+}
 function lockLook(){
   if (!canLook()) return;
   const el = renderer.domElement;
@@ -876,12 +1008,16 @@ function resetGame(){
   rebuildPlayers();
   timeLeft = 90;
   gameOver = false;
+  countdown = COUNTDOWN_SECS;
   roundId++;
   document.getElementById('banner').style.display = 'none';
-  lockLook();
+  updateCountdownUI();
+  if (phase === 'playing') lockLook();
 }
 function endGame(text){
   gameOver = true;
+  countdown = 0;
+  updateCountdownUI();
   unlockLook();
   document.getElementById('bannerText').textContent = text;
   document.getElementById('banner').style.display = 'block';
@@ -895,14 +1031,23 @@ function renderHud(remaining, timeVal){
     mySlot === null ? 'Connecting…' : ((players && players[mySlot] && players[mySlot].displayName) || 'Player ' + (mySlot+1)) + (isHost ? ' • Host' : ' • Guest');
   const me = players && mySlot !== null ? players[mySlot] : null;
   document.getElementById('hpLabel').textContent = me ? Math.max(0, me.hp) : MAX_HP;
+  const fill = document.getElementById('energyFill');
+  if (fill){
+    const e = me ? me.energy : MAX_ENERGY;
+    fill.style.width = (Math.max(0, e) / MAX_ENERGY * 100) + '%';
+    fill.style.background = (me && me.sprintLock > 0) ? '#de4c4c' : '#ffe066';
+  }
   const mapHud = document.getElementById('mapHud');
   if (mapHud) mapHud.textContent = MAPS[currentMap] ? MAPS[currentMap].name : currentMap;
+  updateCountdownUI();
 }
 function showPlayingUI(on){
   document.getElementById('hud').style.display = on ? 'flex' : 'none';
   document.getElementById('tip').style.display = on ? 'block' : 'none';
+  document.getElementById('btnReturnLobby').style.display = on ? 'block' : 'none';
   document.getElementById('menu').style.display = 'none';
   document.getElementById('lobby').style.display = on ? 'none' : document.getElementById('lobby').style.display;
+  updateCountdownUI();
 }
 
 // ================= Free-for-all AI =================
@@ -953,10 +1098,13 @@ function computeProtection(){
 }
 function checkTags(){
   for (const attacker of players){
-    if (attacker.swingTimer <= 0) continue;
+    if (attacker.swingPhase !== 'active') continue;
+    const tip = attacker.stickTipWorld();
     for (const target of players){
       if (target === attacker || !target.hasLeaf || target.protectedNow || !target.mesh.visible) continue;
-      if (attacker.distTo(target) < TAG_REACH) target.takeHit();
+      const tx = target.mesh.position.x, ty = target.mesh.position.y + 1.0, tz = target.mesh.position.z;
+      const d = Math.hypot(tip.x - tx, tip.y - ty, tip.z - tz);
+      if (d < SWING_HIT_R || attacker.distTo(target) < TAG_REACH * 0.72) target.takeHit();
     }
   }
 }
@@ -993,10 +1141,11 @@ const camPos = new THREE.Vector3(0,8,18);
 const camTarget = new THREE.Vector3();
 function updateCamera(p, dt){
   const back = new THREE.Vector3(Math.sin(camAngle), 0, Math.cos(camAngle)).multiplyScalar(6);
-  const desired = new THREE.Vector3(p.mesh.position.x + back.x, 4.2 + p.mesh.position.y * 0.35, p.mesh.position.z + back.z);
+  const crouchAmt = p.crouchT || 0;
+  const desired = new THREE.Vector3(p.mesh.position.x + back.x, 4.2 + p.mesh.position.y * 0.35 - crouchAmt * 0.9, p.mesh.position.z + back.z);
   camPos.lerp(desired, Math.min(1, dt*6));
   camera.position.copy(camPos);
-  camTarget.lerp(new THREE.Vector3(p.mesh.position.x, 1.4 + p.mesh.position.y, p.mesh.position.z), Math.min(1, dt*8));
+  camTarget.lerp(new THREE.Vector3(p.mesh.position.x, 1.4 + p.mesh.position.y - crouchAmt * 0.55, p.mesh.position.z), Math.min(1, dt*8));
   camera.lookAt(camTarget);
 }
 function updateMenuCamera(){
@@ -1026,6 +1175,7 @@ let peer = null;
 let peerConns = [];
 let hostConn = null;
 let createTries = 0;
+let joinRetry = null;
 
 function readLocalName(){
   const el = document.getElementById('playerName');
@@ -1034,7 +1184,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=6';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=7';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
@@ -1127,7 +1277,23 @@ function enterLobbyAsGuest(){
   document.getElementById('botGuestLine').style.display = 'block';
   document.getElementById('roomCodeLabel').textContent = roomCode || '----';
   document.getElementById('shareHint').textContent = 'Waiting for the host to start… keep this tab open.';
-  netSend({type:'join', id: localId, name: readLocalName()});
+  function sendJoin(){
+    console.log('[join] sending join', localId);
+    netSend({type:'join', id: localId, name: readLocalName()});
+  }
+  sendJoin();
+  let tries = 0;
+  if (joinRetry) clearInterval(joinRetry);
+  joinRetry = setInterval(() => {
+    if (mySlot !== null || tries >= 10){
+      clearInterval(joinRetry);
+      joinRetry = null;
+      return;
+    }
+    tries++;
+    console.log('[join] retry', tries);
+    sendJoin();
+  }, 500);
   setMenuErr('');
 }
 function renderLobbyList(){
@@ -1163,16 +1329,31 @@ function hostMessageHandler(m){
   } else if (m.type === 'join' && m.id && m.id !== localId){
     let slot = slotOwner.findIndex(s => s === m.id);
     if (slot === -1) slot = slotOwner.findIndex(s => s === null);
+    console.log('[join] handshake', m.id, 'slot', slot, 'phase', phase);
     if (slot === -1){
+      console.log('[join] fail full', m.id);
       netSend({type:'welcome', id: m.id, slot: null});
     } else {
       slotOwner[slot] = m.id;
       slotNames[slot] = sanitizeName(m.name, 'Player');
+      console.log('[join] assigned', m.id, '->', slot);
       netSend({type:'welcome', id: m.id, slot, code: roomCode});
       renderLobbyList();
+      if (phase === 'playing' && players && players[slot]){
+        players[slot].hasLeaf = true;
+        players[slot].hp = MAX_HP;
+        players[slot].energy = MAX_ENERGY;
+        players[slot].mesh.visible = true;
+        applySeatVisibility();
+        console.log('[join] catchup sent', m.id, 'countdown', countdown);
+        netSend({
+          type: 'catchup', id: m.id, round: roundId, bots: effectiveBots(),
+          difficulty: botDifficulty, map: currentMap, countdown: countdown
+        });
+      }
     }
   } else if (m.type === 'input'){
-    if (slotOwner.includes(m.id)) lastInput[m.id] = {dx:m.dx, dz:m.dz, facing:m.facing, ts: performance.now()};
+    if (slotOwner.includes(m.id)) lastInput[m.id] = {dx:m.dx, dz:m.dz, facing:m.facing, sprint:!!m.sprint, crouch:!!m.crouch, ts: performance.now()};
   } else if (m.type === 'swing'){
     const slot = slotOwner.indexOf(m.id);
     if (slot !== -1 && players && players[slot]) players[slot].startSwing();
@@ -1189,7 +1370,17 @@ function guestMessageHandler(m){
   if (m.type === 'welcome' && m.id === localId){
     mySlot = m.slot;
     if (m.code) roomCode = m.code;
+    if (joinRetry){ clearInterval(joinRetry); joinRetry = null; }
+    console.log('[join] welcome slot', m.slot);
     if (mySlot === null) setLobbyErr('Room is full.');
+  } else if (m.type === 'catchup' && m.id === localId){
+    console.log('[join] catchup confirmed', m.round, m.countdown);
+    if (typeof m.bots === 'number') botCount = m.bots;
+    if (m.difficulty) botDifficulty = m.difficulty;
+    if (m.map && MAPS[m.map]) currentMap = m.map;
+    beginMatchFromNet(m.round);
+    if (typeof m.countdown === 'number') countdown = m.countdown;
+    updateCountdownUI();
   } else if (m.type === 'state'){
     lastSnapshot = m;
   } else if (m.type === 'lobby'){
@@ -1266,6 +1457,9 @@ function applyLobbyScreen(asHost){
   document.getElementById('btnCopyLobby').style.display = asHost ? 'block' : 'none';
   document.getElementById('botSettings').style.display = asHost ? 'block' : 'none';
   document.getElementById('botGuestLine').style.display = asHost ? 'none' : 'block';
+  document.getElementById('btnReturnLobby').style.display = 'none';
+  countdown = 0;
+  updateCountdownUI();
   loadMap(currentMap);
   unlockLook();
 }
@@ -1325,6 +1519,7 @@ function onJoinRoom(){
     return;
   }
   setMenuErr('Joining…');
+  console.log('[join] connect attempt', code);
   destroyPeer();
   peer = new Peer({ debug: 0 });
   const timer = setTimeout(() => {
@@ -1438,32 +1633,56 @@ document.getElementById('btnCopyLobby').addEventListener('click', copyInvite);
 document.getElementById('btnCopyInvite').addEventListener('click', copyInvite);
 
 function hostTick(dt){
+  if (countdown > 0){
+    countdown = Math.max(0, countdown - dt);
+    players.forEach(p => {
+      p.tickEnergy(dt, false, false);
+      p.tickCrouch(dt, false);
+      p.animate(dt, false);
+    });
+    renderHud(players.filter(p=>p.hasLeaf && p.mesh.visible).length, timeLeft);
+    return;
+  }
   timeLeft -= dt;
   computeProtection();
   const now = performance.now();
+  const live = canControl();
   players.forEach((p,i) => {
     const ownerId = slotOwner[i];
-    let dx=0, dz=0, facing=null;
+    let dx=0, dz=0, facing=null, wantSprint=false, wantCrouch=false;
     if (ownerId === localId){
       dx = hostInputDX; dz = hostInputDZ; facing = hostInputFacing;
+      wantSprint = !!(keys['shift'] && live);
+      wantCrouch = !!(keys['control'] && live);
     } else if (ownerId){
       const inp = lastInput[ownerId];
       if (inp && (now - inp.ts) < 3000){
         dx = inp.dx; dz = inp.dz;
         if (typeof inp.facing === 'number') facing = inp.facing;
+        wantSprint = !!inp.sprint && live;
+        wantCrouch = !!inp.crouch && live;
       }
     }
     if (ownerId){
       if (typeof facing === 'number') p.setFacing(facing);
-      const moved = p.move(dx, dz, dt, false);
-      p.updateJump(dt);
+      p.tickCrouch(dt, wantCrouch);
+      p.sprinting = !!(wantSprint && p.energy > 0 && p.sprintLock <= 0 && !p.crouched && p.hasLeaf);
+      const moved = live ? p.move(dx, dz, dt, false) : false;
+      p.tickEnergy(dt, wantSprint, moved);
+      if (live) p.updateJump(dt);
       p.animate(dt, moved);
     } else if (botSlotSet().has(i) && p.mesh.visible){
-      updateAI(p, dt);
-      p.updateJump(dt);
+      if (live){
+        updateAI(p, dt);
+        p.updateJump(dt);
+      } else {
+        p.animate(dt, false);
+      }
+      p.tickEnergy(dt, false, false);
+      p.tickCrouch(dt, false);
     }
   });
-  checkTags();
+  if (live) checkTags();
   const remaining = players.filter(p=>p.hasLeaf && p.mesh.visible).length;
   if (remaining <= 1){
     const winner = players.find(p=>p.hasLeaf);
@@ -1507,8 +1726,17 @@ function clientRenderTick(dt){
     if (p.hasLeaf && !sp.hasLeaf) p.eliminate();
     p.hasLeaf = sp.hasLeaf;
     p.swingTimer = sp.swingTimer;
-    p.animate(dt, moved);
+    if (sp.swingPhase) p.swingPhase = sp.swingPhase;
+    if (typeof sp.energy === 'number') p.energy = sp.energy;
+    if (typeof sp.sprintLock === 'number') p.sprintLock = sp.sprintLock;
+    if (typeof sp.crouched === 'boolean'){
+      p.crouched = sp.crouched;
+      p.crouchT += ((p.crouched ? 1 : 0) - p.crouchT) * Math.min(1, dt * 10);
+    }
+    p.sprinting = !!sp.sprinting;
+    p.animate(dt, moved, false);
   });
+  if (typeof snap.countdown === 'number') countdown = snap.countdown;
   if (snap.gameOver && !gameOver) endGame(snap.bannerText);
   gameOver = snap.gameOver;
   renderHud(snap.remaining, snap.t);
@@ -1519,27 +1747,32 @@ setInterval(() => {
   if (phase !== 'playing') return;
   if (isHost){
     netSend({
-      type: 'state', round: roundId, t: Math.max(0,timeLeft), map: currentMap,
+      type: 'state', round: roundId, t: Math.max(0,timeLeft), map: currentMap, countdown: countdown,
       remaining: players.filter(p=>p.hasLeaf && p.mesh.visible).length,
       gameOver, bannerText: gameOver ? document.getElementById('bannerText').textContent : '',
       players: players.map(p => ({
         x:p.mesh.position.x, y:p.mesh.position.y, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
-        hasLeaf:p.hasLeaf, hp:p.hp, swingTimer:p.swingTimer, active: p.mesh.visible, name: p.displayName
+        hasLeaf:p.hasLeaf, hp:p.hp, energy:p.energy, sprintLock:p.sprintLock, sprinting:p.sprinting,
+        crouched:p.crouched, swingTimer:p.swingTimer, swingPhase:p.swingPhase,
+        active: p.mesh.visible, name: p.displayName
       }))
     });
   } else if (mySlot !== null){
-    const mv = computeLocalMoveVector();
-    netSend({type:'input', id: localId, dx: mv.dx, dz: mv.dz, facing: lookFacing()});
+    const mv = canControl() ? computeLocalMoveVector() : {dx:0, dz:0};
+    netSend({
+      type:'input', id: localId, dx: mv.dx, dz: mv.dz, facing: lookFacing(),
+      sprint: !!(keys['shift'] && canControl()), crouch: !!(keys['control'] && canControl())
+    });
   }
 }, 50);
 
 function triggerJump(){
-  if (phase !== 'playing' || gameOver || mySlot === null) return;
+  if (!canControl() || mySlot === null) return;
   if (isHost) players[mySlot].jump();
   else netSend({type:'jump', id: localId});
 }
 function triggerSwing(){
-  if (phase !== 'playing' || gameOver || mySlot === null) return;
+  if (!canControl() || mySlot === null) return;
   if (isHost) players[mySlot].startSwing();
   else netSend({type:'swing', id: localId});
 }
@@ -1547,6 +1780,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (k === ' ' && phase === 'playing'){ e.preventDefault(); triggerJump(); }
+  if ((k === 'control' || k === 'shift') && phase === 'playing') e.preventDefault();
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 renderer.domElement.addEventListener('click', e => {
@@ -1573,7 +1807,7 @@ function loop(){
   fireLight.intensity = 2.0 + Math.sin(performance.now()*0.01)*0.3;
   flame.scale.y = 1 + Math.sin(performance.now()*0.02)*0.1;
 
-  const mv = computeLocalMoveVector();
+  const mv = canControl() ? computeLocalMoveVector() : {dx:0, dz:0};
   hostInputDX = mv.dx; hostInputDZ = mv.dz;
   hostInputFacing = lookFacing();
 
