@@ -59,6 +59,21 @@
   .settings select{flex:1;padding:6px 8px;border-radius:6px;border:1px solid #3d5a2a;
     background:#0b120a;color:#ffe066;font-size:14px;}
   #botCountLabel{min-width:1.2em;color:#ffe066;font-weight:700;}
+  #crosshair{--ch-size:11px;--ch-gap:5px;--ch-thick:2px;--ch-dot:4px;--ch-color:#ffe066;
+    position:fixed;left:50%;top:50%;width:0;height:0;transform:translate(-50%,-50%);
+    z-index:4;pointer-events:none;display:none;}
+  #crosshair.hit{--ch-color:#ff6b4a;}
+  #crosshair .ch{position:absolute;background:var(--ch-color);box-shadow:0 0 4px #000a;
+    border-radius:1px;}
+  #crosshair .n,#crosshair .s{width:var(--ch-thick);height:var(--ch-size);left:calc(var(--ch-thick)/-2);}
+  #crosshair .e,#crosshair .w{width:var(--ch-size);height:var(--ch-thick);top:calc(var(--ch-thick)/-2);}
+  #crosshair .n{bottom:var(--ch-gap);}
+  #crosshair .s{top:var(--ch-gap);}
+  #crosshair .e{left:var(--ch-gap);}
+  #crosshair .w{right:var(--ch-gap);}
+  #crosshair .d{width:var(--ch-dot);height:var(--ch-dot);left:calc(var(--ch-dot)/-2);top:calc(var(--ch-dot)/-2);
+    border-radius:50%;background:var(--ch-color);box-shadow:0 0 6px #000a;}
+  #crosshair i{display:block;margin:0;font-style:normal;}
 </style>
 </head>
 <body>
@@ -72,6 +87,9 @@
 </div>
 <button id="btnMute" type="button" title="Mute">🔊</button>
 <button type="button" id="btnReturnLobby">Return to lobby</button>
+<div id="crosshair" aria-hidden="true">
+  <i class="ch n"></i><i class="ch s"></i><i class="ch e"></i><i class="ch w"></i><i class="ch d"></i>
+</div>
 <div id="countDown">5</div>
 <div id="tip">WASD: walk &nbsp;|&nbsp; Shift: sprint &nbsp;|&nbsp; Ctrl: crouch &nbsp;|&nbsp; Space: jump
   &nbsp;|&nbsp; Mouse: look &nbsp;|&nbsp; Left-click: swing (5 hits) &nbsp;|&nbsp; Hide behind cover!</div>
@@ -95,7 +113,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=10 — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=11 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -569,6 +587,18 @@ function applyArmPose(chain, pose){
   chain.elbow.rotation.set(Math.max(ELBOW_MIN, Math.min(ELBOW_MAX, pose.el)), 0, 0);
   chain.wrist.rotation.set(pose.wr.x, pose.wr.y, pose.wr.z);
 }
+function readArmPose(chain){
+  if (!chain) return {sh:{x:0,y:0,z:0}, el:0.42, wr:{x:0,y:0,z:0}};
+  return {
+    sh: {x: chain.shoulder.rotation.x, y: chain.shoulder.rotation.y, z: chain.shoulder.rotation.z},
+    el: chain.elbow.rotation.x,
+    wr: {x: chain.wrist.rotation.x, y: chain.wrist.rotation.y, z: chain.wrist.rotation.z}
+  };
+}
+// Hands meet on the lower abdomen, below the chest wrap, so the wrap is not clipped.
+const ELIM_LEFT = { sh:{x:0.72, y:0.38, z:-0.62}, el:1.32, wr:{x:0.42, y:0.18, z:0.12} };
+const ELIM_RIGHT = { sh:{x:0.72, y:-0.38, z:0.62}, el:1.32, wr:{x:0.42, y:-0.18, z:-0.12} };
+const ELIM_BLEND = 0.28;
 
 // ================= Entities =================
 const SAFE_RADIUS = 3.4;
@@ -674,6 +704,10 @@ class Player {
     this.crouched = false;
     this.crouchT = 0;
     this.swingPhase = 'idle';
+    this.flinchT = 0;
+    this.elimT = -1;
+    this.elimFromL = null;
+    this.elimFromR = null;
     this.displayName = 'Player ' + (i + 1);
     this.nameSprite = makeNameSprite(this.displayName);
     this.mesh.add(this.nameSprite);
@@ -793,6 +827,20 @@ class Player {
   animate(dt, moving, driveSwing){
     if (driveSwing === undefined) driveSwing = true;
     const p = this.mesh.userData.parts;
+    if (this.elimT >= 0){
+      this.elimT = Math.min(1, this.elimT + dt / ELIM_BLEND);
+      const t = this.elimT * this.elimT * (3 - 2 * this.elimT);
+      applyArmPose(this.mesh.userData.leftChain, mixArmPose(this.elimFromL || SWING_REST, ELIM_LEFT, t));
+      applyArmPose(this.mesh.userData.rightChain, mixArmPose(this.elimFromR || SWING_REST, ELIM_RIGHT, t));
+      if (p.leftLeg) p.leftLeg.rotation.x *= 0.82;
+      if (p.rightLeg) p.rightLeg.rotation.x *= 0.82;
+      if (p.torso){
+        p.torso.rotation.x = -0.12 * t;
+        p.torso.rotation.z = 0;
+      }
+      if (this.mesh.userData.stickTrail) this.mesh.userData.stickTrail.visible = false;
+      return;
+    }
     if (!this.hasLeaf) return;
     const crouchSquat = this.crouchT * 0.45;
     if (p.torso) p.torso.position.y = 1.18 - crouchSquat * 0.35;
@@ -874,37 +922,63 @@ class Player {
     } else if (this.mesh.userData.stickTrail){
       this.mesh.userData.stickTrail.visible = false;
     }
+    if (p.torso){
+      p.torso.rotation.x = 0;
+      p.torso.rotation.z = 0;
+    }
+    if (this.flinchT > 0){
+      this.flinchT = Math.max(0, this.flinchT - dt * 4.2);
+      const k = Math.sin(Math.min(1, this.flinchT) * Math.PI);
+      if (p.torso){
+        p.torso.rotation.x = -k * 0.1;
+        p.torso.rotation.z = k * 0.08;
+      }
+      if (p.leftArm) p.leftArm.rotation.x -= k * 0.22;
+    }
     if (this.hurtTimer > 0) this.hurtTimer -= dt;
     if (this.swingCooldown > 0) this.swingCooldown -= dt;
   }
   takeHit(){
-    if (!this.hasLeaf || this.protectedNow || this.hurtTimer > 0) return;
+    if (!this.hasLeaf || this.protectedNow || this.hurtTimer > 0) return false;
     this.hp -= 1;
     this.hurtTimer = 0.7;
     drawPlayerLabel(this);
-    if (this.hp <= 0) this.eliminate();
+    if (this.hp <= 0){
+      this.eliminate();
+    } else {
+      this.flinchT = 1;
+    }
+    return true;
   }
   startSwing(){
-    if (!this.hasLeaf || this.swingCooldown > 0 || this.swingPhase !== 'idle') return;
+    if (!this.hasLeaf || this.swingCooldown > 0 || this.swingPhase !== 'idle' || this.elimT >= 0) return;
     this.swingPhase = 'windup';
     this.swingTimer = windupDuration;
     this.swingCooldown = 0.6;
   }
   eliminate(){
-    if (!this.hasLeaf) return;
+    if (!this.hasLeaf && this.elimT >= 0) return;
     this.hasLeaf = false;
+    this.flinchT = 0;
+    this.swingPhase = 'idle';
+    this.swingTimer = 0;
+    this.elimFromL = readArmPose(this.mesh.userData.leftChain);
+    this.elimFromR = readArmPose(this.mesh.userData.rightChain);
+    this.elimT = 0;
     dropLeaf(this);
     dropBanana(this);
     playNooo();
-    const p = this.mesh.userData.parts;
-    p.leftArm.rotation.set(0, 0, 1.0);
-    p.rightArm.rotation.set(0, 0, -1.0);
     if (this.mesh.userData.stickTrail) this.mesh.userData.stickTrail.visible = false;
   }
 }
 
 // ================= Leaf + banana drop physics =================
 let fallingLeaves = [];
+let hitSparks = [];
+let combatHits = [];
+let hitSeq = 0;
+let lastHitSeq = 0;
+let crosshairHitT = 0;
 let audioCtx = null, masterGain = null, musicGain = null, sfxGain = null, drumNode = null, muted = false;
 
 function ensureAudio(){
@@ -1011,6 +1085,37 @@ function playSwish(){
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(filter); filter.connect(g); g.connect(sfxGain);
     src.start(t); src.stop(t + dur);
+  } catch (err) {}
+}
+function playHit(){
+  try {
+    ensureAudio();
+    if (!audioCtx || muted) return;
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(70, t + 0.12);
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+    o.connect(g); g.connect(sfxGain);
+    o.start(t); o.stop(t + 0.16);
+    const frames = Math.floor(audioCtx.sampleRate * 0.08);
+    const buf = audioCtx.createBuffer(1, frames, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const bp = audioCtx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 900;
+    bp.Q.value = 0.7;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(0.18, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    src.connect(bp); bp.connect(ng); ng.connect(sfxGain);
+    src.start(t); src.stop(t + 0.09);
   } catch (err) {}
 }
 function playNooo(){
@@ -1124,6 +1229,92 @@ function updateFallingLeaves(dt){
   }
 }
 
+function spawnHitBurst(pos){
+  for (let i = 0; i < 8; i++){
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.07, 0.07),
+      new THREE.MeshStandardMaterial({
+        color: 0xffe066, emissive: 0xffaa22, emissiveIntensity: 1.4,
+        transparent: true, opacity: 0.95, roughness: 0.4
+      })
+    );
+    m.position.copy(pos);
+    scene.add(m);
+    hitSparks.push({
+      obj: m,
+      vx: (Math.random() - 0.5) * 7,
+      vy: 1.8 + Math.random() * 4,
+      vz: (Math.random() - 0.5) * 7,
+      life: 0.38
+    });
+  }
+}
+function updateHitSparks(dt){
+  for (let i = hitSparks.length - 1; i >= 0; i--){
+    const s = hitSparks[i];
+    s.life -= dt;
+    s.obj.position.x += s.vx * dt;
+    s.obj.position.y += s.vy * dt;
+    s.obj.position.z += s.vz * dt;
+    s.vy -= 18 * dt;
+    s.obj.rotation.x += dt * 8;
+    s.obj.rotation.y += dt * 10;
+    if (s.obj.material && s.obj.material.opacity !== undefined){
+      s.obj.material.opacity = Math.max(0, s.life / 0.38);
+    }
+    if (s.life <= 0){
+      scene.remove(s.obj);
+      hitSparks.splice(i, 1);
+    }
+  }
+}
+function flashCrosshair(){
+  crosshairHitT = 0.16;
+}
+function updateCrosshair(dt){
+  const el = document.getElementById('crosshair');
+  if (!el) return;
+  if (dt){
+    if (crosshairHitT > 0){
+      crosshairHitT = Math.max(0, crosshairHitT - dt);
+      el.classList.add('hit');
+    } else {
+      el.classList.remove('hit');
+    }
+  }
+  const me = players && mySlot !== null ? players[mySlot] : null;
+  const on = phase === 'playing' && me && me.hasLeaf && me.elimT < 0;
+  el.style.display = on ? 'block' : 'none';
+}
+function registerHit(attacker, target, pos){
+  const killing = !target.hasLeaf || target.elimT >= 0;
+  hitSeq += 1;
+  combatHits.push({
+    seq: hitSeq,
+    attacker: attacker.id,
+    id: target.id,
+    x: pos.x, y: pos.y, z: pos.z,
+    kill: killing
+  });
+  if (combatHits.length > 16) combatHits = combatHits.slice(-16);
+  spawnHitBurst(pos);
+  playHit();
+  if (attacker.id === mySlot) flashCrosshair();
+}
+function applyCombatHits(hits){
+  if (!hits || !hits.length) return;
+  for (let i = 0; i < hits.length; i++){
+    const h = hits[i];
+    if (!h || h.seq <= lastHitSeq) continue;
+    lastHitSeq = h.seq;
+    spawnHitBurst(new THREE.Vector3(h.x, h.y, h.z));
+    playHit();
+    if (h.attacker === mySlot) flashCrosshair();
+    const p = players && players[h.id];
+    if (p && !h.kill && p.hasLeaf) p.flinchT = 1;
+  }
+}
+
 // ================= Global game state =================
 let players = null;
 let timeLeft = 90, gameOver = false, roundId = 0, countdown = 0;
@@ -1165,6 +1356,12 @@ function rebuildPlayers(){
   if (players) players.forEach(p => scene.remove(p.mesh));
   fallingLeaves.forEach(f => scene.remove(f.obj));
   fallingLeaves = [];
+  hitSparks.forEach(s => scene.remove(s.obj));
+  hitSparks = [];
+  combatHits = [];
+  hitSeq = 0;
+  lastHitSeq = 0;
+  crosshairHitT = 0;
   players = Array.from({length: NUM_PLAYERS}, (_,i) => new Player(i));
   applySeatVisibility();
 }
@@ -1234,6 +1431,7 @@ function renderHud(remaining, timeVal){
   const mapHud = document.getElementById('mapHud');
   if (mapHud) mapHud.textContent = MAPS[currentMap] ? MAPS[currentMap].name : currentMap;
   updateCountdownUI();
+  updateCrosshair(0);
 }
 function showPlayingUI(on){
   document.getElementById('hud').style.display = on ? 'flex' : 'none';
@@ -1242,11 +1440,15 @@ function showPlayingUI(on){
   document.getElementById('menu').style.display = 'none';
   document.getElementById('lobby').style.display = on ? 'none' : document.getElementById('lobby').style.display;
   updateCountdownUI();
+  updateCrosshair(0);
 }
 
 // ================= Free-for-all AI =================
 function updateAI(p, dt){
-  if (!p.hasLeaf) return;
+  if (!p.hasLeaf){
+    p.animate(dt, false);
+    return;
+  }
   const cfg = BOT_DIFF[botDifficulty] || BOT_DIFF.normal;
   p.speed = cfg.speed;
   let target = null, nd = Infinity;
@@ -1313,7 +1515,11 @@ function checkTags(){
           if (Math.hypot(mx - tx, my - ty, mz - tz) < SWING_HIT_R){ hit = true; break; }
         }
       }
-      if (hit) target.takeHit();
+      if (hit){
+        if (target.takeHit()){
+          registerHit(attacker, target, new THREE.Vector3(tx, ty, tz));
+        }
+      }
     }
     attacker._stickPrev = samples;
   }
@@ -1394,7 +1600,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=10';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=11';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
@@ -1874,17 +2080,17 @@ function hostTick(dt){
       }
     }
     if (ownerId){
-      if (typeof facing === 'number') p.setFacing(facing);
+      if (typeof facing === 'number' && p.hasLeaf) p.setFacing(facing);
       p.tickCrouch(dt, wantCrouch);
       p.sprinting = !!(wantSprint && p.energy > 0 && p.sprintLock <= 0 && !p.crouched && p.hasLeaf);
-      const moved = live ? p.move(dx, dz, dt, false) : false;
+      const moved = (live && p.hasLeaf) ? p.move(dx, dz, dt, false) : false;
       p.tickEnergy(dt, wantSprint, moved);
-      if (live) p.updateJump(dt);
+      if (live && p.hasLeaf) p.updateJump(dt);
       p.animate(dt, moved);
     } else if (botSlotSet().has(i) && p.mesh.visible){
       if (live){
         updateAI(p, dt);
-        p.updateJump(dt);
+        if (p.hasLeaf) p.updateJump(dt);
       } else {
         p.animate(dt, false);
       }
@@ -1910,6 +2116,7 @@ function clientRenderTick(dt){
     if (snap.map && MAPS[snap.map]) loadMap(snap.map);
     rebuildPlayers();
   }
+  applyCombatHits(snap.hits);
   snap.players.forEach((sp,i) => {
     const p = players[i];
     const dxp = sp.x - p.mesh.position.x, dzp = sp.z - p.mesh.position.z;
@@ -1961,6 +2168,7 @@ setInterval(() => {
       type: 'state', round: roundId, t: Math.max(0,timeLeft), map: currentMap, countdown: countdown,
       remaining: players.filter(p=>p.hasLeaf && p.mesh.visible).length,
       gameOver, bannerText: gameOver ? document.getElementById('bannerText').textContent : '',
+      hits: combatHits,
       players: players.map(p => ({
         x:p.mesh.position.x, y:p.mesh.position.y, z:p.mesh.position.z, rotY:p.mesh.rotation.y,
         hasLeaf:p.hasLeaf, hp:p.hp, energy:p.energy, sprintLock:p.sprintLock, sprinting:p.sprinting,
@@ -2023,7 +2231,10 @@ function loop(){
   hostInputFacing = lookFacing();
 
   if (phase === 'playing'){
-    if (isHost){ if (!gameOver) hostTick(dt); }
+    if (isHost){
+      if (!gameOver) hostTick(dt);
+      else if (players) players.forEach(p => { if (p.mesh.visible) p.animate(dt, false, false); });
+    }
     else { clientRenderTick(dt); }
     if (mySlot !== null && players && players[mySlot]){
       if (players[mySlot].hasLeaf) players[mySlot].setFacing(lookFacing());
@@ -2034,6 +2245,8 @@ function loop(){
   }
 
   updateFallingLeaves(dt);
+  updateHitSparks(dt);
+  updateCrosshair(dt);
   renderer.render(scene, camera);
 }
 
