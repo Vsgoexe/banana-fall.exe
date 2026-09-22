@@ -62,7 +62,7 @@
   <span>🗺️ <b id="mapHud">Campfire Grove</b></span>
 </div>
 <button id="btnMute" type="button" title="Mute">🔊</button>
-<div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Right-click + drag: look / turn
+<div id="tip">WASD: walk the way you look &nbsp;|&nbsp; Space: jump &nbsp;|&nbsp; Move mouse: look / turn
   &nbsp;|&nbsp; Left-click: swing stick (3 hits to knock the banana) &nbsp;|&nbsp; Hide behind trees, walls, and crates!</div>
 <div id="banner">
   <div id="bannerText"></div>
@@ -85,7 +85,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=3 — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=4 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -818,6 +818,22 @@ function rebuildPlayers(){
   players = Array.from({length: NUM_PLAYERS}, (_,i) => new Player(i));
   applySeatVisibility();
 }
+function canLook(){
+  return phase === 'playing' && !gameOver;
+}
+function lockLook(){
+  if (!canLook()) return;
+  const el = renderer.domElement;
+  if (document.pointerLockElement === el) return;
+  if (el.requestPointerLock){
+    try { el.requestPointerLock(); } catch (err) {}
+  }
+}
+function unlockLook(){
+  if (document.exitPointerLock && document.pointerLockElement){
+    try { document.exitPointerLock(); } catch (err) {}
+  }
+}
 function resetGame(){
   loadMap(currentMap);
   rebuildPlayers();
@@ -825,9 +841,11 @@ function resetGame(){
   gameOver = false;
   roundId++;
   document.getElementById('banner').style.display = 'none';
+  lockLook();
 }
 function endGame(text){
   gameOver = true;
+  unlockLook();
   document.getElementById('bannerText').textContent = text;
   document.getElementById('banner').style.display = 'block';
 }
@@ -909,7 +927,7 @@ function checkTags(){
 // ================= Camera-relative input (W = look direction) =================
 const keys = {};
 let camAngle = 0;
-let orbiting = false, lastMouseX = 0;
+let lastMouseX = 0;
 
 function lookFacing(){
   // Three.js mesh forward is local -Z, which matches camera look at this yaw.
@@ -979,7 +997,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=3';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=4';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
@@ -1174,6 +1192,7 @@ function beginMatchFromNet(round){
   phase = 'playing';
   document.getElementById('lobby').style.display = 'none';
   showPlayingUI(true);
+  lockLook();
 }
 
 function startMatch(){
@@ -1188,6 +1207,7 @@ function startMatch(){
   phase = 'playing';
   document.getElementById('lobby').style.display = 'none';
   showPlayingUI(true);
+  lockLook();
   netSend({type:'start', round: roundId, bots: effectiveBots(), difficulty: botDifficulty, map: currentMap});
 }
 
@@ -1210,6 +1230,7 @@ function applyLobbyScreen(asHost){
   document.getElementById('botSettings').style.display = asHost ? 'block' : 'none';
   document.getElementById('botGuestLine').style.display = asHost ? 'none' : 'block';
   loadMap(currentMap);
+  unlockLook();
 }
 function returnEveryoneToLobby(){
   applyLobbyScreen(true);
@@ -1492,28 +1513,21 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 renderer.domElement.addEventListener('click', e => {
-  if (e.button === 0 && phase === 'playing') triggerSwing();
+  if (phase !== 'playing') return;
+  if (!gameOver) lockLook();
+  if (e.button === 0 && !gameOver) triggerSwing();
 });
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
-renderer.domElement.addEventListener('mousedown', e => {
-  if (e.button !== 2 || phase === 'menu') return;
-  orbiting = true;
-  lastMouseX = e.clientX;
-  if (renderer.domElement.requestPointerLock){
-    renderer.domElement.requestPointerLock();
-  }
-});
 window.addEventListener('mousemove', e => {
-  if (!orbiting) return;
-  const dx = (document.pointerLockElement === renderer.domElement) ? e.movementX : (e.clientX - lastMouseX);
+  if (!canLook()) return;
+  const locked = document.pointerLockElement === renderer.domElement;
+  const dx = locked ? (e.movementX || 0) : (e.clientX - lastMouseX);
   lastMouseX = e.clientX;
+  if (!locked && Math.abs(dx) > 80) return;
   camAngle -= dx * 0.006;
 });
-window.addEventListener('mouseup', e => {
-  if (e.button === 2){
-    orbiting = false;
-    if (document.exitPointerLock) document.exitPointerLock();
-  }
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === renderer.domElement) lastMouseX = 0;
 });
 
 function loop(){
