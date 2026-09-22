@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>banna fall</title>
+<title>BANANA FALL</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <style>
@@ -74,7 +74,7 @@
 
 <div id="menu" class="overlay">
   <div class="panel">
-    <h1>BANNA FALL</h1>
+    <h1>BANANA FALL</h1>
     <p class="sub">Open the site. Create a room. Friends join with your code.</p>
     <input id="playerName" maxlength="12" placeholder="Your name" autocomplete="nickname">
     <button id="btnCreate" type="button">Play — Create Room</button>
@@ -85,7 +85,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=5 — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=6 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -1034,7 +1034,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=5';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=6';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
@@ -1042,7 +1042,7 @@ function pageUrl(){
   return PUBLIC_PLAY_URL;
 }
 function inviteText(){
-  return 'Play banna fall: ' + pageUrl() + '  Room code: ' + (roomCode || '');
+  return 'Play BANANA FALL: ' + pageUrl() + '  Room code: ' + (roomCode || '');
 }
 function randomCode(){
   let c = '';
@@ -1467,7 +1467,7 @@ function hostTick(dt){
   const remaining = players.filter(p=>p.hasLeaf && p.mesh.visible).length;
   if (remaining <= 1){
     const winner = players.find(p=>p.hasLeaf);
-    endGame(winner ? `🍌 ${winner.displayName} wins — last banna standing!` : 'Everyone lost their leaf at once!');
+    endGame(winner ? `🍌 ${winner.displayName} wins — last banana standing!` : 'Everyone lost their leaf at once!');
   } else if (timeLeft <= 0){
     endGame(`⏱ Time's up! ${remaining} players still have their leaf!`);
   }
