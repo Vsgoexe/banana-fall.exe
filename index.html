@@ -95,7 +95,7 @@
     <button id="btnCopyInvite" class="secondary" type="button" style="display:none">Copy invite link</button>
     <button id="btnLocal" class="secondary" type="button">Same computer (tabs)</button>
     <p class="err" id="menuErr"></p>
-    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=9 — send friends that link plus your room code.</p>
+    <p class="share" id="menuHint">Play at https://vsgoexe.github.io/banana-fall.exe/?v=10 — send friends that link plus your room code.</p>
   </div>
 </div>
 
@@ -319,20 +319,79 @@ loadMap('grove');
 
 // ================= Character builder =================
 const PALETTE = [0xd94f4f,0x4f8fd9,0xd9c14f,0x7fd94f,0xb14fd9,0xd97f4f,0x4fd9c1,0xffffff];
-
+const LEAF_MID = 0x4caf50;
+const LEAF_DARK = 0x2e6b34;
+const LEAF_LIGHT = 0x8fd98a;
+const VINE_BROWN = 0x5a3a1a;
+const SKIN = 0xe0b088;
+function leafMat(hex){
+  return new THREE.MeshStandardMaterial({color: hex, roughness: 0.72, metalness: 0, side: THREE.DoubleSide});
+}
+function makeFrond(w, h, tone){
+  const g = new THREE.Group();
+  const blade = new THREE.Mesh(new THREE.ConeGeometry(w, h, 5), leafMat(tone));
+  blade.rotation.x = Math.PI;
+  g.add(blade);
+  const vein = new THREE.Mesh(new THREE.BoxGeometry(0.02, h * 0.85, 0.01), leafMat(LEAF_DARK));
+  vein.position.y = -h * 0.08;
+  g.add(vein);
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(w * 1.15, 0.03, 0.01), leafMat(LEAF_LIGHT));
+  edge.position.y = -h * 0.42;
+  g.add(edge);
+  return g;
+}
 function makeLeafSkirt(){
-  const leafMat = new THREE.MeshStandardMaterial({color:0x5fd15f, side:THREE.DoubleSide});
   const skirt = new THREE.Group();
-  const bladeCount = 10;
-  for (let i=0;i<bladeCount;i++){
-    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.16,0.5,4), leafMat);
-    const a = (i/bladeCount)*Math.PI*2;
-    blade.position.set(Math.sin(a)*0.42, 0.55, Math.cos(a)*0.42);
-    blade.rotation.x = Math.PI;
-    blade.rotation.y = a;
-    skirt.add(blade);
+  const fronds = [];
+  const tones = [LEAF_MID, LEAF_DARK, LEAF_MID, LEAF_LIGHT];
+  for (let i = 0; i < 4; i++){
+    const frond = makeFrond(0.4 + (i % 2) * 0.05, 0.56, tones[i]);
+    const a = (i / 4) * Math.PI * 2 + 0.18;
+    frond.position.set(Math.sin(a) * 0.5, 0.74, Math.cos(a) * 0.5);
+    frond.rotation.y = a;
+    frond.rotation.x = 0.28;
+    frond.scale.z = 0.32;
+    frond.userData.baseX = 0.28;
+    skirt.add(frond);
+    fronds.push(frond);
   }
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.035, 6, 12), new THREE.MeshStandardMaterial({color: VINE_BROWN, roughness: 0.8}));
+  belt.rotation.x = Math.PI / 2;
+  belt.position.y = 0.78;
+  skirt.add(belt);
+  skirt.userData.fronds = fronds;
   return skirt;
+}
+function makeChestWrap(accentHex){
+  const wrap = new THREE.Group();
+  const front = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.18, 0.07), leafMat(LEAF_MID));
+  front.position.set(0, 0.12, 0.18);
+  wrap.add(front);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.16, 0.06), leafMat(LEAF_DARK));
+  back.position.set(0, 0.11, -0.18);
+  wrap.add(back);
+  const vineMat = new THREE.MeshStandardMaterial({color: VINE_BROWN, roughness: 0.8});
+  for (const side of [-1, 1]){
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.36, 5), vineMat);
+    cord.position.set(side * 0.26, 0.1, 0);
+    cord.rotation.z = side * 0.12;
+    wrap.add(cord);
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.028, 5, 4), new THREE.MeshStandardMaterial({color: accentHex, roughness: 0.6}));
+    knot.position.set(side * 0.28, 0.02, 0.04);
+    wrap.add(knot);
+  }
+  wrap.position.y = 0.08;
+  return wrap;
+}
+function makeHeadband(accentHex){
+  const band = new THREE.Group();
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.07, 0.12), leafMat(LEAF_MID));
+  strip.position.y = 0.12;
+  band.add(strip);
+  const accent = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.025, 0.13), new THREE.MeshStandardMaterial({color: accentHex, roughness: 0.55}));
+  accent.position.y = 0.12;
+  band.add(accent);
+  return band;
 }
 
 function makeBanana(){
@@ -360,19 +419,20 @@ function makeCharacter(colorHex){
   // Procedural joint chain (Groups): shoulder → elbow (X-only) → wrist → palm.
   // Stick is parented to palm (grip target cannot lag). BoxGeometry has no skin weights.
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({color:colorHex});
-  const headMat = new THREE.MeshStandardMaterial({color:0xe0b088});
-  const skinMat = new THREE.MeshStandardMaterial({color:0xe0b088});
+  const headMat = new THREE.MeshStandardMaterial({color: SKIN});
+  const skinMat = new THREE.MeshStandardMaterial({color: SKIN});
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.92, 0.4), bodyMat);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.92, 0.4), skinMat);
   torso.position.y = 1.18;
   g.add(torso);
+  torso.add(makeChestWrap(colorHex));
   const neck = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.16), skinMat);
   neck.position.y = 1.68;
   g.add(neck);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), headMat);
   head.position.y = 1.96;
   g.add(head);
+  head.add(makeHeadband(colorHex));
 
   function addFinger(palm, x, z, curl){
     const knuckle = new THREE.Group();
@@ -394,13 +454,13 @@ function makeCharacter(colorHex){
     const shoulder = new THREE.Group();
     shoulder.position.set(side * 0.46, 1.48, 0.02);
     shoulder.rotation.z = side * 0.12;
-    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.38, 0.18), bodyMat);
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.38, 0.18), skinMat);
     upper.position.y = -0.19;
     shoulder.add(upper);
     const elbow = new THREE.Group();
     elbow.position.y = -0.38;
     elbow.rotation.x = 0.42;
-    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.16), bodyMat);
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.16), skinMat);
     lower.position.y = -0.18;
     elbow.add(lower);
     shoulder.add(elbow);
@@ -437,12 +497,18 @@ function makeCharacter(colorHex){
   const right = makeArm(-1);
   g.add(left.shoulder, right.shoulder);
 
-  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.82, 0.26), new THREE.MeshStandardMaterial({color:0x2b2b2b}));
+  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.82, 0.26), skinMat);
   leftLeg.position.set(0.18, 0.62, 0);
   leftLeg.geometry.translate(0, -0.41, 0);
-  const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.82, 0.26), new THREE.MeshStandardMaterial({color:0x2b2b2b}));
+  const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.82, 0.26), skinMat);
   rightLeg.position.set(-0.18, 0.62, 0);
   rightLeg.geometry.translate(0, -0.41, 0);
+  const leftFoot = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.36), skinMat);
+  leftFoot.position.set(0, -0.78, 0.05);
+  leftLeg.add(leftFoot);
+  const rightFoot = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.36), skinMat);
+  rightFoot.position.set(0, -0.78, 0.05);
+  rightLeg.add(rightFoot);
   g.add(leftLeg, rightLeg);
 
   const shorts = new THREE.Mesh(
@@ -459,6 +525,7 @@ function makeCharacter(colorHex){
   const skirt = makeLeafSkirt();
   g.add(skirt);
   g.userData.leaf = skirt;
+  g.userData.skirtFronds = skirt.userData.fronds;
 
   const stick = new THREE.Mesh(
     new THREE.CylinderGeometry(0.04, 0.05, 1.4, 6),
@@ -762,6 +829,16 @@ class Player {
     if (this.crouched && this.onGround()){
       p.leftLeg.rotation.x += 0.7;
       p.rightLeg.rotation.x += 0.7;
+    }
+    const fronds = this.mesh.userData.skirtFronds;
+    if (fronds){
+      const amp = this.crouched ? 0.04 : (this.sprinting ? 0.14 : (moving ? 0.08 : 0.02));
+      const flare = this.crouchT > 0.3 ? 0.18 : 0;
+      for (let i = 0; i < fronds.length; i++){
+        const f = fronds[i];
+        f.rotation.z = Math.sin(this.walkT + i * 1.4) * amp;
+        f.rotation.x = (f.userData.baseX || 0.35) + flare;
+      }
     }
     if (this.swingPhase !== 'idle'){
       if (driveSwing){
@@ -1317,7 +1394,7 @@ function readLocalName(){
   try { localStorage.setItem('bannaName', localName); } catch (err) {}
   return localName;
 }
-const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=9';
+const PUBLIC_PLAY_URL = 'https://vsgoexe.github.io/banana-fall.exe/?v=10';
 function pageUrl(){
   if (location.protocol === 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
     return location.href.split('#')[0];
